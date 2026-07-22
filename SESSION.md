@@ -4,7 +4,7 @@
 
 ## What was done
 
-- Phase 0 foundation is complete. The strict TypeScript scaffold, architecture decisions, role prompts, canonical state, cross-harness handoff, tests, and build all passed verification.
+- Phase 0 foundation is complete and committed as 7ae32e0. The strict TypeScript scaffold, architecture decisions, role prompts, canonical state, cross-harness handoff, tests, lint, and build all passed verification.
 - Current position: phase-01 — Local project lifecycle; stage ready; status not_started.
 - Current task: None. Next task: P01-T01.
 - Completed: P00-T01.
@@ -30,4 +30,4 @@ None
 - Codex CLI, Claude Code, and provider API keys were not detected in this shell; this does not block Phase 1.
 - The workspace is OneDrive-backed, so large file operations can be slower than normal.
 
-Last updated: 2026-07-22T15:38:19.621Z by codex
+Last updated: 2026-07-22T15:44:17.347Z by codex

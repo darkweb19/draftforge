@@ -45,9 +45,9 @@
     "docs/decisions/0004-delegated-execution-contract.md"
   ],
   "handoff": {
-    "updatedAt": "2026-07-22T15:38:19.621Z",
+    "updatedAt": "2026-07-22T15:44:17.347Z",
     "updatedBy": "codex",
-    "summary": "Phase 0 foundation is complete. The strict TypeScript scaffold, architecture decisions, role prompts, canonical state, cross-harness handoff, tests, and build all passed verification.",
+    "summary": "Phase 0 foundation is complete and committed as 7ae32e0. The strict TypeScript scaffold, architecture decisions, role prompts, canonical state, cross-harness handoff, tests, lint, and build all passed verification.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
