@@ -6,12 +6,12 @@ The lead model decides and delegates. It does not implement. Lower-cost workers 
 
 ## Status
 
-Phase 0 foundation scaffold. Provider-backed orchestration is intentionally not implemented yet. See `PHASES.md` and `SESSION.md`.
+Phase 1, local project lifecycle. Provider-backed orchestration is intentionally not implemented yet. See `PHASES.md` and `SESSION.md`.
 
 ## Core commands
 
 ```text
-draftforge init [directory]
+draftforge init [directory] [--name <name>] [--force]
 draftforge doctor
 draftforge status
 draftforge plan <idea.md>
@@ -20,7 +20,33 @@ draftforge resume
 draftforge handoff
 ```
 
-Only `doctor`, `status`, and `handoff` are wired in the Phase 0 skeleton. Other commands fail clearly until their owning phase is implemented.
+`init`, `doctor`, `status`, and `handoff` are wired. `plan`, `run`, and `resume` fail clearly until their owning phase is implemented.
+
+## Initializing a project
+
+```bash
+draftforge init my-app
+```
+
+`init` needs no provider, login, or API key. It writes canonical state, a default role
+configuration, the JSON Schemas, shared harness instructions, and an `idea.md` draft:
+
+```text
+my-app/
+  .draftforge/state.json     Canonical state (phase-00, no tasks yet)
+  .draftforge/config.json    Role routes and limits
+  .draftforge/schema/        State and configuration schemas
+  .draftforge/tasks/         Task contracts, created during planning
+  .draftforge/runs/          Redacted run events
+  AGENTS.md CLAUDE.md PHASES.md SESSION.md idea.md
+```
+
+Conflict rules:
+
+- A file that does not exist is created.
+- A file whose content already matches is left alone, so re-running is idempotent.
+- Any other existing file is reported as a conflict and **nothing is written**. Pass `--force` to approve overwriting.
+- Once `.draftforge/state.json` is valid, `init` only restores missing files and never rewrites existing ones.
 
 ## Development
 
@@ -49,6 +75,7 @@ docs/              Product spec, architecture, protocol, and ADRs
 prompts/           Versioned role prompts
 scripts/           Session rendering and consistency checks
 src/               CLI and provider-independent core
+templates/         Files and schemas that `init` writes into a new project
 test/              Node test-runner tests
 AGENTS.md           Shared harness instructions
 CLAUDE.md           Claude Code entrypoint to the shared instructions

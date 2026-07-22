@@ -1,5 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { assertProjectState, type ProjectState } from "../domain/state.js";
 
 export const STATE_PATH = ".draftforge/state.json";
@@ -10,6 +11,28 @@ export async function readProjectState(root: string): Promise<ProjectState> {
   const value: unknown = JSON.parse(raw);
   assertProjectState(value);
   return value;
+}
+
+export function serializeProjectState(state: ProjectState): string {
+  return `${JSON.stringify(state, null, 2)}\n`;
+}
+
+export async function writeProjectState(root: string, state: ProjectState): Promise<void> {
+  assertProjectState(state);
+  await writeFileAtomic(resolve(root, STATE_PATH), serializeProjectState(state));
+}
+
+/**
+ * Writes through a sibling temporary file so an interrupted run never leaves a
+ * half-written state or handoff file behind.
+ */
+export async function writeFileAtomic(path: string, contents: string): Promise<void> {
+  const directory = dirname(path);
+  await mkdir(directory, { recursive: true });
+
+  const temporaryPath = `${path}.${randomBytes(6).toString("hex")}.tmp`;
+  await writeFile(temporaryPath, contents, "utf8");
+  await rename(temporaryPath, path);
 }
 
 export function renderSession(state: ProjectState): string {
@@ -50,7 +73,7 @@ Last updated: ${state.handoff.updatedAt} by ${state.handoff.updatedBy}
 }
 
 export async function writeSession(root: string, state: ProjectState): Promise<void> {
-  await writeFile(resolve(root, SESSION_PATH), renderSession(state), "utf8");
+  await writeFileAtomic(resolve(root, SESSION_PATH), renderSession(state));
 }
 
 function renderList(items: readonly string[], emptyText: string): string {
