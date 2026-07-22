@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftforge.local/schema/state.schema.json",
+  "title": "DraftForge project state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "project", "workflow", "phases", "tasks", "decisions", "handoff"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "draftFile"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "draftFile": { "type": "string", "minLength": 1 }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phaseId", "phaseName", "stage", "status", "currentTask", "nextTask"],
+      "properties": {
+        "phaseId": { "type": "string", "pattern": "^phase-[0-9]{2}$" },
+        "phaseName": { "type": "string", "minLength": 1 },
+        "stage": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["not_started", "in_progress", "blocked", "complete"] },
+        "currentTask": { "type": ["string", "null"] },
+        "nextTask": { "type": ["string", "null"] }
+      }
+    },
+    "phases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/phase" }
+    },
+    "tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/task" }
+    },
+    "decisions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["updatedAt", "updatedBy", "summary", "decisionsLocked", "openQuestions", "blockers", "nextActions", "gotchas"],
+      "properties": {
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string" },
+        "decisionsLocked": { "type": "array", "items": { "type": "string" } },
+        "openQuestions": { "type": "array", "items": { "type": "string" } },
+        "blockers": { "type": "array", "items": { "type": "string" } },
+        "nextActions": { "type": "array", "items": { "type": "string" } },
+        "gotchas": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "status"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^phase-[0-9]{2}$" },
+        "name": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["not_started", "in_progress", "blocked", "complete"] }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "status", "taskFile", "dependsOn"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^P[0-9]{2}-T[0-9]{2}$" },
+        "title": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["backlog", "ready", "active", "blocked", "review", "done"] },
+        "taskFile": { "type": "string", "minLength": 1 },
+        "dependsOn": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    }
+  }
+}

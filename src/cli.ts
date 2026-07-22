@@ -3,6 +3,7 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runDoctor } from "./commands/doctor.js";
+import { runInit, type InitOptions } from "./commands/init.js";
 import { readProjectState, writeSession } from "./state/files.js";
 
 const VERSION = "0.0.0";
@@ -70,7 +71,15 @@ export async function main(
       }
     }
 
-    case "init":
+    case "init": {
+      try {
+        return await runInitCommand(args.slice(1), io, cwd);
+      } catch (error: unknown) {
+        io.error(toErrorMessage(error));
+        return 1;
+      }
+    }
+
     case "plan":
     case "run":
     case "resume":
@@ -84,13 +93,78 @@ export async function main(
   }
 }
 
+async function runInitCommand(args: readonly string[], io: CliIo, cwd: string): Promise<number> {
+  const options = parseInitArgs(args);
+  const result = await runInit(cwd, options);
+
+  if (result.conflicts.length > 0) {
+    io.error(`Refusing to overwrite existing files in ${result.root}:`);
+    for (const path of result.conflicts) {
+      io.error(`  ${path}`);
+    }
+    io.error("Move or remove them, initialize an empty directory, or re-run with --force.");
+    return 1;
+  }
+
+  for (const path of result.created) {
+    io.out(`created  ${path}`);
+  }
+  for (const path of result.unchanged) {
+    io.out(`skipped  ${path}`);
+  }
+
+  if (result.alreadyInitialized) {
+    io.out(`${result.projectName} is already initialized at ${result.root}.`);
+  } else {
+    io.out(`Initialized ${result.projectName} at ${result.root}.`);
+  }
+
+  io.out("Next: describe the project in idea.md, then run `draftforge plan idea.md`.");
+  return 0;
+}
+
+function parseInitArgs(args: readonly string[]): InitOptions {
+  let directory: string | undefined;
+  let name: string | undefined;
+  let force = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] as string;
+
+    if (arg === "--force") {
+      force = true;
+    } else if (arg === "--name") {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("--")) {
+        throw new Error("--name requires a value.");
+      }
+      name = value;
+      index += 1;
+    } else if (arg.startsWith("--")) {
+      throw new Error(`Unknown init option: ${arg}`);
+    } else if (directory === undefined) {
+      directory = arg;
+    } else {
+      throw new Error(`Unexpected argument: ${arg}`);
+    }
+  }
+
+  return {
+    ...(directory === undefined ? {} : { directory }),
+    ...(name === undefined ? {} : { name }),
+    force,
+  };
+}
+
 function helpText(): string {
   return `DraftForge ${VERSION}
 
 Usage: draftforge <command>
 
 Commands:
-  init [directory]  Initialize a DraftForge project (Phase 1)
+  init [directory]  Initialize a DraftForge project
+                      --name <name>  Project name (default: directory name)
+                      --force        Overwrite conflicting existing files
   doctor            Check local harnesses and API-key presence
   status            Show the canonical workflow position
   plan <idea.md>    Run the architecture interview (Phase 2)

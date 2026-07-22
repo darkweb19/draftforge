@@ -4,10 +4,10 @@
 
 ## What was done
 
-- Phase 0 foundation is complete and committed as 7ae32e0. The strict TypeScript scaffold, architecture decisions, role prompts, canonical state, cross-harness handoff, tests, lint, and build all passed verification.
-- Current position: phase-01 — Local project lifecycle; stage ready; status not_started.
-- Current task: None. Next task: P01-T01.
-- Completed: P00-T01.
+- P01-T01 is complete: `draftforge init [directory]` creates a resumable project with no model call, refuses to overwrite foreign files unless --force, and is idempotent on re-run. Typecheck, lint, 16 tests, build, and a built-CLI smoke run on Windows all passed. The work is not committed yet.
+- Current position: phase-01 — Local project lifecycle; stage implementation; status in_progress.
+- Current task: None. Next task: P01-T02.
+- Completed: P00-T01, P01-T01.
 
 ## Decisions locked
 
@@ -22,12 +22,15 @@ None
 
 ## Next steps
 
-1. Begin P01-T01: implement local project initialization without model calls.
-2. Keep provider-backed orchestration deferred until Phase 3 authentication is available.
+1. Review and commit the P01-T01 implementation.
+2. Begin P01-T02: state transition validation, append-only event log, config discovery, and project fixtures.
+3. Keep provider-backed orchestration deferred until Phase 3 authentication is available.
 
 ## Gotchas
 
+- Git commands fail in this workspace: the tree is owned by CodexSandboxOffline while the shell runs as 210si. Run `git config --global --add safe.directory` for this path before committing.
+- `templates/schema/*.json` must stay byte-identical to `.draftforge/schema/*.json`; test/templates.test.ts enforces it.
 - Codex CLI, Claude Code, and provider API keys were not detected in this shell; this does not block Phase 1.
 - The workspace is OneDrive-backed, so large file operations can be slower than normal.
 
-Last updated: 2026-07-22T15:44:17.347Z by codex
+Last updated: 2026-07-22T16:30:00.000Z by claude-code

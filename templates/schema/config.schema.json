@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftforge.local/schema/config.schema.json",
+  "title": "DraftForge configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["roles", "limits"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["architect", "worker", "reviewer"],
+      "properties": {
+        "architect": { "$ref": "#/$defs/role" },
+        "worker": { "$ref": "#/$defs/workerRole" },
+        "reviewer": { "$ref": "#/$defs/role" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxRepairAttempts", "taskTimeoutMinutes"],
+      "properties": {
+        "maxRepairAttempts": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "taskTimeoutMinutes": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter", "model", "reasoning"],
+      "properties": {
+        "adapter": {
+          "enum": ["codex-cli", "claude-cli", "openai-api", "anthropic-api"]
+        },
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning": { "enum": ["low", "medium", "high", "xhigh"] }
+      }
+    },
+    "workerRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter", "model", "reasoning", "maxConcurrency"],
+      "properties": {
+        "adapter": {
+          "enum": ["codex-cli", "claude-cli", "openai-api", "anthropic-api"]
+        },
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning": { "enum": ["low", "medium", "high", "xhigh"] },
+        "maxConcurrency": { "type": "integer", "minimum": 1, "maximum": 16 }
+      }
+    }
+  }
+}
