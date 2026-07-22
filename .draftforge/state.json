@@ -1,0 +1,68 @@
+{
+  "$schema": "./schema/state.schema.json",
+  "schemaVersion": 1,
+  "project": {
+    "name": "DraftForge",
+    "draftFile": "docs/PRODUCT_SPEC.md"
+  },
+  "workflow": {
+    "phaseId": "phase-01",
+    "phaseName": "Local project lifecycle",
+    "stage": "ready",
+    "status": "not_started",
+    "currentTask": null,
+    "nextTask": "P01-T01"
+  },
+  "phases": [
+    { "id": "phase-00", "name": "Foundation", "status": "complete" },
+    { "id": "phase-01", "name": "Local project lifecycle", "status": "not_started" },
+    { "id": "phase-02", "name": "Architecture interview and planning", "status": "not_started" },
+    { "id": "phase-03", "name": "Provider and harness adapters", "status": "not_started" },
+    { "id": "phase-04", "name": "Delegated execution", "status": "not_started" },
+    { "id": "phase-05", "name": "Review and recovery", "status": "not_started" },
+    { "id": "phase-06", "name": "Release", "status": "not_started" }
+  ],
+  "tasks": [
+    {
+      "id": "P00-T01",
+      "title": "Create and verify the foundation scaffold",
+      "status": "done",
+      "taskFile": ".draftforge/tasks/P00-T01.md",
+      "dependsOn": []
+    },
+    {
+      "id": "P01-T01",
+      "title": "Implement local project initialization",
+      "status": "ready",
+      "taskFile": ".draftforge/tasks/P01-T01.md",
+      "dependsOn": ["P00-T01"]
+    }
+  ],
+  "decisions": [
+    "docs/decisions/0001-node-typescript-cli.md",
+    "docs/decisions/0002-provider-port-and-role-routing.md",
+    "docs/decisions/0003-canonical-file-state.md",
+    "docs/decisions/0004-delegated-execution-contract.md"
+  ],
+  "handoff": {
+    "updatedAt": "2026-07-22T15:38:19.621Z",
+    "updatedBy": "codex",
+    "summary": "Phase 0 foundation is complete. The strict TypeScript scaffold, architecture decisions, role prompts, canonical state, cross-harness handoff, tests, and build all passed verification.",
+    "decisionsLocked": [
+      "Use strict TypeScript, Node.js, npm, and ESM.",
+      "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
+      "Use .draftforge/state.json as canonical state and generate SESSION.md from it.",
+      "Use DAG task contracts, isolated workers, and independent review before completion."
+    ],
+    "openQuestions": [],
+    "blockers": [],
+    "nextActions": [
+      "Begin P01-T01: implement local project initialization without model calls.",
+      "Keep provider-backed orchestration deferred until Phase 3 authentication is available."
+    ],
+    "gotchas": [
+      "Codex CLI, Claude Code, and provider API keys were not detected in this shell; this does not block Phase 1.",
+      "The workspace is OneDrive-backed, so large file operations can be slower than normal."
+    ]
+  }
+}

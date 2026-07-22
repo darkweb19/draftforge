@@ -1,0 +1,35 @@
+{
+  "name": "draftforge",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Model-orchestrated CLI for turning rough ideas into agent-ready project scaffolds.",
+  "type": "module",
+  "bin": {
+    "draftforge": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "npm run typecheck && npm run lint && npm test && npm run session:check && npm run build",
+    "dev": "tsx src/cli.ts",
+    "lint": "oxlint src test scripts",
+    "session:check": "node scripts/session-check.mjs",
+    "session:render": "node scripts/session-render.mjs",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "oxlint": "1.75.0",
+    "tsx": "4.23.1",
+    "typescript": "7.0.2"
+  }
+}
