@@ -4,10 +4,10 @@
 
 ## What was done
 
-- P01-T01 is complete: `draftforge init [directory]` creates a resumable project with no model call, refuses to overwrite foreign files unless --force, and is idempotent on re-run. Typecheck, lint, 16 tests, build, and a built-CLI smoke run on Windows all passed. The work is not committed yet.
-- Current position: phase-01 — Local project lifecycle; stage implementation; status in_progress.
-- Current task: None. Next task: P01-T02.
-- Completed: P00-T01, P01-T01.
+- P01-T02 and Phase 1 are complete: transitions are serialized and evented, layered configuration is validated, status and doctor report project health, and fresh, resumed, and corrupted fixtures are covered. Typecheck, lint, 30 tests, session validation, build, and built-CLI smoke runs passed.
+- Current position: phase-02 — Architecture interview and planning; stage planning; status not_started.
+- Current task: None. Next task: None.
+- Completed: P00-T01, P01-T01, P01-T02.
 
 ## Decisions locked
 
@@ -15,6 +15,8 @@
 - Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.
 - Use .draftforge/state.json as canonical state and generate SESSION.md from it.
 - Use DAG task contracts, isolated workers, and independent review before completion.
+- Serialize task transitions with a project lock and append redacted events before atomic snapshot writes.
+- Apply optional config.local.json as a deep override, then validate the merged configuration.
 
 ## Open questions
 
@@ -22,15 +24,15 @@ None
 
 ## Next steps
 
-1. Review and commit the P01-T01 implementation.
-2. Begin P01-T02: state transition validation, append-only event log, config discovery, and project fixtures.
-3. Keep provider-backed orchestration deferred until Phase 3 authentication is available.
+1. Define the first Phase 2 task contract for the architecture interview and planning workflow.
+2. Implement the one-batch resumable interview and explicit plan approval gate with deterministic fixtures.
+3. Keep provider-backed execution deferred until Phase 3 authentication is available.
 
 ## Gotchas
 
-- Git commands fail in this workspace: the tree is owned by CodexSandboxOffline while the shell runs as 210si. Run `git config --global --add safe.directory` for this path before committing.
 - `templates/schema/*.json` must stay byte-identical to `.draftforge/schema/*.json`; test/templates.test.ts enforces it.
-- Codex CLI, Claude Code, and provider API keys were not detected in this shell; this does not block Phase 1.
+- Codex CLI, Claude Code, and provider API keys were not detected in this shell; deterministic Phase 2 work can proceed without them.
+- Generated `.draftforge/runs/` events are ignored run artifacts and must not be staged.
 - The workspace is OneDrive-backed, so large file operations can be slower than normal.
 
-Last updated: 2026-07-22T16:30:00.000Z by claude-code
+Last updated: 2026-07-22T19:00:00.000Z by codex

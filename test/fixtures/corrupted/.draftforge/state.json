@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "project": { "name": "Corrupted fixture", "draftFile": "idea.md" },
+  "workflow": {
+    "phaseId": "phase-01",
+    "phaseName": "Broken",
+    "stage": "implementation",
+    "status": "in_progress",
+    "currentTask": "P01-T01",
+    "nextTask": null
+  },
+  "phases": [{ "id": "phase-01", "name": "Broken", "status": "in_progress" }],
+  "tasks": [
+    {
+      "id": "P01-T01",
+      "title": "Broken task",
+      "status": "finished",
+      "taskFile": ".draftforge/tasks/P01-T01.md",
+      "dependsOn": []
+    }
+  ],
+  "decisions": [],
+  "handoff": {
+    "updatedAt": "not-a-date",
+    "updatedBy": "fixture",
+    "summary": "Broken.",
+    "decisionsLocked": [],
+    "openQuestions": [],
+    "blockers": [],
+    "nextActions": [],
+    "gotchas": []
+  }
+}

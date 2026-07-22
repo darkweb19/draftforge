@@ -1,0 +1,29 @@
+{
+  "$schema": "./schema/state.schema.json",
+  "schemaVersion": 1,
+  "project": { "name": "Fresh fixture", "draftFile": "idea.md" },
+  "workflow": {
+    "phaseId": "phase-00",
+    "phaseName": "Intake",
+    "stage": "idea",
+    "status": "not_started",
+    "currentTask": null,
+    "nextTask": null
+  },
+  "phases": [{ "id": "phase-00", "name": "Intake", "status": "not_started" }],
+  "tasks": [],
+  "decisions": [],
+  "handoff": {
+    "updatedAt": "2026-01-01T00:00:00.000Z",
+    "updatedBy": "fixture",
+    "summary": "Initialized Fresh fixture with DraftForge. No planning has run yet.",
+    "decisionsLocked": [],
+    "openQuestions": [],
+    "blockers": [],
+    "nextActions": [
+      "Describe the project in idea.md.",
+      "Run `draftforge plan idea.md` to produce decisions and a task graph."
+    ],
+    "gotchas": []
+  }
+}

@@ -30,6 +30,8 @@ Provider packages may not be imported by domain or application code. Structured 
 
 `.draftforge/state.json` is a versioned snapshot. Each accepted transition also appends a redacted event under `.draftforge/runs/<run-id>/events.jsonl`. The snapshot makes startup fast; the event trail explains what happened and supports recovery.
 
+Filesystem transitions take an exclusive project lock so concurrent writers cannot lose an update. Event records are appended before the atomic snapshot and generated handoff writes, preserving a replayable trail if snapshot persistence is interrupted.
+
 `SESSION.md` is derived from state. Agents read it for orientation, but software reads JSON. If they disagree, JSON wins and `draftforge handoff` regenerates the Markdown file.
 
 ## Planning contract
@@ -64,3 +66,5 @@ Role routes are explicit:
 - Reviewer: strong model, independently invoked.
 
 Each route selects an adapter, model string, reasoning level, timeout, and budget. `provider-default` lets an authenticated harness select its recommended current model.
+
+`.draftforge/config.local.json` is an optional deep override of `.draftforge/config.json`. DraftForge validates the merged configuration against the same contract shipped to initialized projects.

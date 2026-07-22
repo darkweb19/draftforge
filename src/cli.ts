@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { runDoctor } from "./commands/doctor.js";
 import { runInit, type InitOptions } from "./commands/init.js";
 import { readProjectState, writeSession } from "./state/files.js";
+import { inspectProjectHealth } from "./state/health.js";
 
 const VERSION = "0.0.0";
 
@@ -39,10 +40,11 @@ export async function main(
       return 0;
 
     case "doctor": {
-      for (const check of runDoctor()) {
+      const checks = [...runDoctor(), ...(await inspectProjectHealth(resolve(cwd)))];
+      for (const check of checks) {
         io.out(`[${check.status.toUpperCase()}] ${check.name}: ${check.detail}`);
       }
-      return 0;
+      return checks.some((check) => check.status === "fail") ? 1 : 0;
     }
 
     case "status": {
@@ -51,7 +53,11 @@ export async function main(
         io.out(`${state.project.name}: ${state.workflow.phaseId} / ${state.workflow.stage} / ${state.workflow.status}`);
         io.out(`Current task: ${state.workflow.currentTask ?? "none"}`);
         io.out(`Next task: ${state.workflow.nextTask ?? "none"}`);
-        return 0;
+        const checks = await inspectProjectHealth(resolve(cwd));
+        for (const check of checks) {
+          io.out(`[${check.status.toUpperCase()}] ${check.name}: ${check.detail}`);
+        }
+        return checks.some((check) => check.status === "fail") ? 1 : 0;
       } catch (error: unknown) {
         io.error(toErrorMessage(error));
         return 1;
@@ -165,8 +171,8 @@ Commands:
   init [directory]  Initialize a DraftForge project
                       --name <name>  Project name (default: directory name)
                       --force        Overwrite conflicting existing files
-  doctor            Check local harnesses and API-key presence
-  status            Show the canonical workflow position
+  doctor            Check project health, harnesses, and API-key presence
+  status            Show workflow position and project health
   plan <idea.md>    Run the architecture interview (Phase 2)
   run               Execute ready worker tasks (Phase 4)
   resume            Resume interrupted work (Phase 4)

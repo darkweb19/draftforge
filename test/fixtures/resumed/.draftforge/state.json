@@ -1,0 +1,41 @@
+{
+  "$schema": "./schema/state.schema.json",
+  "schemaVersion": 1,
+  "project": { "name": "Resumed fixture", "draftFile": "idea.md" },
+  "workflow": {
+    "phaseId": "phase-01",
+    "phaseName": "Local lifecycle",
+    "stage": "implementation",
+    "status": "in_progress",
+    "currentTask": null,
+    "nextTask": "P01-T02"
+  },
+  "phases": [{ "id": "phase-01", "name": "Local lifecycle", "status": "in_progress" }],
+  "tasks": [
+    {
+      "id": "P01-T01",
+      "title": "Initialize",
+      "status": "done",
+      "taskFile": ".draftforge/tasks/P01-T01.md",
+      "dependsOn": []
+    },
+    {
+      "id": "P01-T02",
+      "title": "Resume",
+      "status": "ready",
+      "taskFile": ".draftforge/tasks/P01-T02.md",
+      "dependsOn": ["P01-T01"]
+    }
+  ],
+  "decisions": [],
+  "handoff": {
+    "updatedAt": "2026-01-02T00:00:00.000Z",
+    "updatedBy": "fixture",
+    "summary": "Ready to resume.",
+    "decisionsLocked": [],
+    "openQuestions": [],
+    "blockers": [],
+    "nextActions": ["Start P01-T02."],
+    "gotchas": []
+  }
+}

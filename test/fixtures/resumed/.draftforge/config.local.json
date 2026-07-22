@@ -1,0 +1,4 @@
+{
+  "roles": { "worker": { "maxConcurrency": 4 } },
+  "limits": { "taskTimeoutMinutes": 45 }
+}

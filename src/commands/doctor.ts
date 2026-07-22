@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 
 export interface DoctorCheck {
   readonly name: string;
-  readonly status: "pass" | "missing";
+  readonly status: "pass" | "missing" | "fail";
   readonly detail: string;
 }
 

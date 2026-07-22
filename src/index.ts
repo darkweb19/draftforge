@@ -3,7 +3,10 @@ export { runDoctor, type DoctorCheck } from "./commands/doctor.js";
 export { runInit, type InitOptions, type InitResult } from "./commands/init.js";
 export {
   assertProjectConfig,
+  CONFIG_PATH,
   defaultProjectConfig,
+  loadProjectConfig,
+  LOCAL_CONFIG_PATH,
   type AdapterId,
   type ProjectConfig,
   type ReasoningLevel,
@@ -27,4 +30,11 @@ export {
   writeProjectState,
   writeSession,
 } from "./state/files.js";
+export { appendRunEvent, redactForLog, REDACTED_VALUE, type RunEvent } from "./state/events.js";
+export { inspectProjectHealth, type ProjectHealthCheck } from "./state/health.js";
+export {
+  applyTaskTransition,
+  transitionTask,
+  type TaskTransitionInput,
+} from "./state/transitions.js";
 export { DRAFT_FILE, createInitialProjectState } from "./state/initial-state.js";

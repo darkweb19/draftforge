@@ -6,7 +6,7 @@ The lead model decides and delegates. It does not implement. Lower-cost workers 
 
 ## Status
 
-Phase 1, local project lifecycle. Provider-backed orchestration is intentionally not implemented yet. See `PHASES.md` and `SESSION.md`.
+Phase 1, local project lifecycle, is complete. Phase 2 architecture interview and planning is next. Provider-backed orchestration is intentionally not implemented yet. See `PHASES.md` and `SESSION.md`.
 
 ## Core commands
 
@@ -21,6 +21,10 @@ draftforge handoff
 ```
 
 `init`, `doctor`, `status`, and `handoff` are wired. `plan`, `run`, and `resume` fail clearly until their owning phase is implemented.
+
+`status` validates canonical state, the discovered configuration, and `SESSION.md`. `doctor`
+reports those project checks alongside local harness and environment availability. Missing
+provider credentials are informational in Phase 1; invalid project files return a non-zero exit.
 
 ## Initializing a project
 
@@ -47,6 +51,16 @@ Conflict rules:
 - A file whose content already matches is left alone, so re-running is idempotent.
 - Any other existing file is reported as a conflict and **nothing is written**. Pass `--force` to approve overwriting.
 - Once `.draftforge/state.json` is valid, `init` only restores missing files and never rewrites existing ones.
+
+## Local state and configuration
+
+Task changes follow the protocol state machine and are serialized with a project lock. Every
+accepted transition appends a secret-redacted JSON event to
+`.draftforge/runs/<run-id>/events.jsonl`, then atomically updates state and its generated handoff.
+
+DraftForge loads `.draftforge/config.json` first and deeply applies the optional ignored
+`.draftforge/config.local.json`. The merged result must match the shipped configuration schema;
+errors identify the invalid file or field.
 
 ## Development
 

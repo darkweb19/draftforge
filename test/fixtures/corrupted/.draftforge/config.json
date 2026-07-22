@@ -1,0 +1,13 @@
+{
+  "roles": {
+    "architect": { "adapter": "codex-cli", "model": "provider-default", "reasoning": "high" },
+    "worker": {
+      "adapter": "claude-cli",
+      "model": "provider-default",
+      "reasoning": "medium",
+      "maxConcurrency": 0
+    },
+    "reviewer": { "adapter": "codex-cli", "model": "provider-default", "reasoning": "high" }
+  },
+  "limits": { "maxRepairAttempts": 2, "taskTimeoutMinutes": 30 }
+}
