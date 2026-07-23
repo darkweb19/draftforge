@@ -4,9 +4,9 @@
 
 ## What was done
 
-- P02-T03 is complete: plan --revise records reason, actor, and predecessor, withdraws superseded readiness, reopens the interview with answers carried forward, and reconciles the revised task graph against recorded progress instead of resetting it. Phase 2 is closed; Phase 3 needs its task contracts defined. Typecheck, lint, 69 tests, session check, and build passed.
-- Current position: phase-03 — Provider and harness adapters; stage planning; status in_progress.
-- Current task: None. Next task: None.
+- Phase 3 task contracts are defined and registered: P03-T01 (role-routed model-runner factory, adapter contract with capability discovery, shared timeout/retry/redaction, and a reusable adapter contract-test suite), P03-T02 (Codex CLI and Claude Code harness adapters), P03-T03 (OpenAI and Anthropic API adapters), and P03-T04 (doctor per-adapter auth checks and plan-command runner wiring). Stage moved from planning to execution; P03-T01 is ready. No product source changed this session.
+- Current position: phase-03 — Provider and harness adapters; stage execution; status in_progress.
+- Current task: None. Next task: P03-T01.
 - Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03.
 
 ## Decisions locked
@@ -24,6 +24,7 @@
 - Drive planning through plan --prompt, --submit, and --answer until Phase 3 adapters exist.
 - Change an approved plan only through a recorded revision that carries answers forward and preserves recorded progress.
 - Retain one superseded plan so re-materialization can tell generated files from user edits.
+- Decompose Phase 3 by transport: shared runner/reliability foundation (P03-T01), harness adapters (P03-T02), API adapters (P03-T03), then doctor auth and plan wiring (P03-T04), with every adapter passing one reusable contract-test suite.
 
 ## Open questions
 
@@ -31,18 +32,18 @@ None
 
 ## Next steps
 
-1. Define the Phase 3 task contracts for the Codex CLI, Claude Code, OpenAI, and Anthropic adapters behind the existing model-runner port.
-2. Extend doctor with per-adapter presence and authentication checks that never print secret values.
+1. Execute P03-T01: build the role-routed model-runner factory, the adapter contract with capability discovery, and shared timeout/retry/redaction, plus the reusable adapter contract-test suite and ADR 0008.
+2. Then implement P03-T02 harness adapters and P03-T03 API adapters against the shared contract suite, and finish Phase 3 with P03-T04 doctor auth checks and plan-command runner wiring.
 
 ## Gotchas
 
 - `templates/schema/*.json` must stay byte-identical to `.draftforge/schema/*.json`; test/templates.test.ts enforces it.
-- Codex CLI, Claude Code, and provider API keys were not detected in this shell; deterministic Phase 2 work can proceed without them.
+- P03-T02 and P03-T03 both own `src/providers/registry.ts`; run them sequentially so the shared registry edit never races, and keep P03-T01's placeholder entries buildable until each adapter replaces them.
+- Codex CLI, Claude Code, and provider API keys were not detected in this shell; P03-T01 is deterministic and needs none, but P03-T02/T03/T04 live smoke tests require them and must skip (not fail) when absent.
 - Generated `.draftforge/runs/` events are ignored run artifacts and must not be staged.
 - An approved plan is still immutable in place: plan --submit and plan --prompt refuse it until `plan --revise` starts a recorded revision.
-- A revision restates its question batch on purpose, so `plan --prompt` asks for questions before a plan even when nothing new is being asked.
 - The architect prompt text is asserted in test/architect.test.ts; changing wording means updating those assertions.
 - If a process crashes during the brief stale-lock recovery claim, verify no DraftForge process is running before removing `.draftforge/state.lock.recovery`.
 - The workspace is OneDrive-backed, so large file operations can be slower than normal.
 
-Last updated: 2026-07-23T21:15:00.000Z by claude
+Last updated: 2026-07-23T22:30:00.000Z by claude
