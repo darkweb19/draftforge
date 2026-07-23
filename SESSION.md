@@ -4,10 +4,10 @@
 
 ## What was done
 
-- Phase 3 task contracts are defined and registered: P03-T01 (role-routed model-runner factory, adapter contract with capability discovery, shared timeout/retry/redaction, and a reusable adapter contract-test suite), P03-T02 (Codex CLI and Claude Code harness adapters), P03-T03 (OpenAI and Anthropic API adapters), and P03-T04 (doctor per-adapter auth checks and plan-command runner wiring). Stage moved from planning to execution; P03-T01 is ready. No product source changed this session.
+- P03-T01 is complete: createModelRunner routes architect, worker, and reviewer roles to configured adapters through a typed registry, and shared reliability adds a per-call timeout, bounded retry of transient failures only, and secret redaction. A reusable adapter contract-test suite (test/providers/contract.ts) is ready for P03-T02 and P03-T03, and ADR 0008 records the contract. Registry ships placeholder factories until the real transports land. P03-T02 and P03-T03 are now ready; both may proceed but share src/providers/registry.ts. Typecheck, lint, 87 tests, session check, and build pass.
 - Current position: phase-03 — Provider and harness adapters; stage execution; status in_progress.
-- Current task: None. Next task: P03-T01.
-- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03.
+- Current task: None. Next task: P03-T02.
+- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01.
 
 ## Decisions locked
 
@@ -25,6 +25,7 @@
 - Change an approved plan only through a recorded revision that carries answers forward and preserves recorded progress.
 - Retain one superseded plan so re-materialization can tell generated files from user edits.
 - Decompose Phase 3 by transport: shared runner/reliability foundation (P03-T01), harness adapters (P03-T02), API adapters (P03-T03), then doctor auth and plan wiring (P03-T04), with every adapter passing one reusable contract-test suite.
+- Adapters map transport failures to AdapterError with a correct retryable flag; the runner centralizes timeout, retry, and redaction so authentication and contract errors are never retried.
 
 ## Open questions
 
@@ -32,8 +33,8 @@ None
 
 ## Next steps
 
-1. Execute P03-T01: build the role-routed model-runner factory, the adapter contract with capability discovery, and shared timeout/retry/redaction, plus the reusable adapter contract-test suite and ADR 0008.
-2. Then implement P03-T02 harness adapters and P03-T03 API adapters against the shared contract suite, and finish Phase 3 with P03-T04 doctor auth checks and plan-command runner wiring.
+1. Execute P03-T02: implement the Codex CLI and Claude Code harness adapters over a shared child-process transport, passing test/providers/contract.ts against a faked spawn boundary.
+2. Execute P03-T03: implement the OpenAI and Anthropic API adapters over fetch with env keys, passing the same contract suite against an injected fetch; then finish Phase 3 with P03-T04 doctor auth checks and plan-command runner wiring.
 
 ## Gotchas
 
@@ -46,4 +47,4 @@ None
 - If a process crashes during the brief stale-lock recovery claim, verify no DraftForge process is running before removing `.draftforge/state.lock.recovery`.
 - The workspace is OneDrive-backed, so large file operations can be slower than normal.
 
-Last updated: 2026-07-23T22:30:00.000Z by claude
+Last updated: 2026-07-23T23:45:00.000Z by claude

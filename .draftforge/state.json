@@ -11,7 +11,7 @@
     "stage": "execution",
     "status": "in_progress",
     "currentTask": null,
-    "nextTask": "P03-T01"
+    "nextTask": "P03-T02"
   },
   "phases": [
     {
@@ -106,7 +106,7 @@
     {
       "id": "P03-T01",
       "title": "Model-runner factory, role routing, and adapter reliability",
-      "status": "ready",
+      "status": "done",
       "taskFile": ".draftforge/tasks/P03-T01.md",
       "dependsOn": [
         "P02-T03"
@@ -115,7 +115,7 @@
     {
       "id": "P03-T02",
       "title": "Harness adapters: Codex CLI and Claude Code",
-      "status": "backlog",
+      "status": "ready",
       "taskFile": ".draftforge/tasks/P03-T02.md",
       "dependsOn": [
         "P03-T01"
@@ -124,7 +124,7 @@
     {
       "id": "P03-T03",
       "title": "API adapters: OpenAI and Anthropic",
-      "status": "backlog",
+      "status": "ready",
       "taskFile": ".draftforge/tasks/P03-T03.md",
       "dependsOn": [
         "P03-T01"
@@ -148,12 +148,13 @@
     "docs/decisions/0004-delegated-execution-contract.md",
     "docs/decisions/0005-planning-artifact-and-approval-gate.md",
     "docs/decisions/0006-architect-response-contract.md",
-    "docs/decisions/0007-recorded-plan-revision.md"
+    "docs/decisions/0007-recorded-plan-revision.md",
+    "docs/decisions/0008-provider-adapter-contract.md"
   ],
   "handoff": {
-    "updatedAt": "2026-07-23T22:30:00.000Z",
+    "updatedAt": "2026-07-23T23:45:00.000Z",
     "updatedBy": "claude",
-    "summary": "Phase 3 task contracts are defined and registered: P03-T01 (role-routed model-runner factory, adapter contract with capability discovery, shared timeout/retry/redaction, and a reusable adapter contract-test suite), P03-T02 (Codex CLI and Claude Code harness adapters), P03-T03 (OpenAI and Anthropic API adapters), and P03-T04 (doctor per-adapter auth checks and plan-command runner wiring). Stage moved from planning to execution; P03-T01 is ready. No product source changed this session.",
+    "summary": "P03-T01 is complete: createModelRunner routes architect, worker, and reviewer roles to configured adapters through a typed registry, and shared reliability adds a per-call timeout, bounded retry of transient failures only, and secret redaction. A reusable adapter contract-test suite (test/providers/contract.ts) is ready for P03-T02 and P03-T03, and ADR 0008 records the contract. Registry ships placeholder factories until the real transports land. P03-T02 and P03-T03 are now ready; both may proceed but share src/providers/registry.ts. Typecheck, lint, 87 tests, session check, and build pass.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
@@ -168,13 +169,14 @@
       "Drive planning through plan --prompt, --submit, and --answer until Phase 3 adapters exist.",
       "Change an approved plan only through a recorded revision that carries answers forward and preserves recorded progress.",
       "Retain one superseded plan so re-materialization can tell generated files from user edits.",
-      "Decompose Phase 3 by transport: shared runner/reliability foundation (P03-T01), harness adapters (P03-T02), API adapters (P03-T03), then doctor auth and plan wiring (P03-T04), with every adapter passing one reusable contract-test suite."
+      "Decompose Phase 3 by transport: shared runner/reliability foundation (P03-T01), harness adapters (P03-T02), API adapters (P03-T03), then doctor auth and plan wiring (P03-T04), with every adapter passing one reusable contract-test suite.",
+      "Adapters map transport failures to AdapterError with a correct retryable flag; the runner centralizes timeout, retry, and redaction so authentication and contract errors are never retried."
     ],
     "openQuestions": [],
     "blockers": [],
     "nextActions": [
-      "Execute P03-T01: build the role-routed model-runner factory, the adapter contract with capability discovery, and shared timeout/retry/redaction, plus the reusable adapter contract-test suite and ADR 0008.",
-      "Then implement P03-T02 harness adapters and P03-T03 API adapters against the shared contract suite, and finish Phase 3 with P03-T04 doctor auth checks and plan-command runner wiring."
+      "Execute P03-T02: implement the Codex CLI and Claude Code harness adapters over a shared child-process transport, passing test/providers/contract.ts against a faked spawn boundary.",
+      "Execute P03-T03: implement the OpenAI and Anthropic API adapters over fetch with env keys, passing the same contract suite against an injected fetch; then finish Phase 3 with P03-T04 doctor auth checks and plan-command runner wiring."
     ],
     "gotchas": [
       "`templates/schema/*.json` must stay byte-identical to `.draftforge/schema/*.json`; test/templates.test.ts enforces it.",

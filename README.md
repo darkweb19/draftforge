@@ -9,8 +9,10 @@ The lead model decides and delegates. It does not implement. Lower-cost workers 
 Phase 1 is complete. Phase 2 has provider-independent planning contracts,
 resumable interview state, DAG validation, an explicit approval gate, a
 recorded architect loop you can drive by hand, and recorded plan revision.
-Provider-backed architect execution is intentionally deferred to Phase 3. See
-`PHASES.md` and `SESSION.md`.
+Phase 3 has begun: a role-routed model-runner factory and shared adapter
+reliability (timeout, bounded retry, secret redaction) sit behind the
+model-runner port; the Codex CLI, Claude Code, OpenAI, and Anthropic transports
+follow in the remaining Phase 3 tasks. See `PHASES.md` and `SESSION.md`.
 
 ## Core commands
 
@@ -131,6 +133,17 @@ Requires Node.js 24 or newer for development. The published CLI target is Node.j
 - DraftForge never stores secret values in project state or configuration.
 
 For Codex, `codex login` supports ChatGPT subscription sign-in, and `codex exec` is the stable non-interactive surface used by the future adapter. Model IDs are configuration, not source-code constants.
+
+## Provider layer
+
+Architect, worker, and reviewer roles reach models through one model-runner
+port. `createModelRunner(config)` (in `src/providers/`) routes each role to its
+configured adapter and wraps every call in shared reliability: a per-call
+timeout, bounded retry of transient failures only, and secret redaction on the
+surfaced error. Adapters expose capability discovery as pure data and classify
+failures as transient or terminal; authentication and contract errors are never
+retried. Concrete Codex CLI, Claude Code, OpenAI, and Anthropic adapters land in
+the remaining Phase 3 tasks.
 
 ## Repository map
 
