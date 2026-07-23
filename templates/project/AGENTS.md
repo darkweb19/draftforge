@@ -31,6 +31,10 @@ API-backed agent) follows the same rules.
 - Never disable safety checks to make a task pass.
 - Prefer the smallest implementation that satisfies the active task.
 - Stop on an architecture conflict rather than inventing a new direction.
+- The main thread is the intelligent lead engineer and system architect: it owns
+  final design decisions, architectural direction, task decomposition, and
+  cross-task integration. Subagents may investigate and implement bounded work,
+  but must not make unreviewed architectural decisions.
 - Use an agentic delegation workflow for coding: the lead thread owns planning,
   task assignment, review, verification, and state transitions; bounded
   subagents perform implementation-heavy work.
