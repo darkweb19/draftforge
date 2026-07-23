@@ -1,0 +1,20 @@
+{
+  "kind": "questions",
+  "questions": {
+    "revision": 1,
+    "items": [
+      {
+        "id": "Q1",
+        "prompt": "Which runtime should the tracker target?",
+        "blocking": true,
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "prompt": "Should the first release include a web UI?",
+        "blocking": false,
+        "answer": null
+      }
+    ]
+  }
+}

@@ -117,12 +117,44 @@ async function runPlanCommand(args: readonly string[], io: CliIo, cwd: string): 
         ? `Resuming planning revision ${result.artifact.revision} from ${result.artifact.sourceFile}.`
         : `Initialized planning revision ${result.artifact.revision} from ${result.artifact.sourceFile}.`,
     );
-    io.out("No provider was called; the planning state is ready for an architect adapter.");
+    io.out("No provider was called. Next: `draftforge plan --prompt`.");
     return 0;
   }
 
   if (result.mode === "status") {
     printPlanningStatus(result, io);
+    return 0;
+  }
+
+  if (result.mode === "prompt") {
+    io.out(`# System`);
+    io.out(result.request.system);
+    io.out("");
+    io.out(`# User`);
+    io.out(result.request.user);
+    return 0;
+  }
+
+  if (result.mode === "submit") {
+    io.out(
+      result.applied === "questions"
+        ? `Recorded ${result.artifact.questions.items.length} architect question(s) for revision ${result.artifact.revision}.`
+        : `Recorded a draft plan for revision ${result.artifact.revision}.`,
+    );
+    io.out(
+      result.applied === "questions"
+        ? "Next: answer them with `draftforge plan --answer <id>=<text>`."
+        : "Next: `draftforge plan --approve --by <actor>`.",
+    );
+    return 0;
+  }
+
+  if (result.mode === "answer") {
+    const remaining = result.artifact.questions.items.filter(
+      (question) => question.blocking && question.answer === null,
+    ).length;
+    io.out(`Recorded answers: ${result.answeredIds.join(", ")}.`);
+    io.out(`Blocking questions remaining: ${remaining}.`);
     return 0;
   }
 
@@ -134,42 +166,95 @@ async function runPlanCommand(args: readonly string[], io: CliIo, cwd: string): 
   return 0;
 }
 
+const PLAN_USAGE = [
+  "Usage: draftforge plan <idea.md>",
+  "       draftforge plan --status",
+  "       draftforge plan --prompt",
+  "       draftforge plan --submit <response.json>",
+  "       draftforge plan --answer <id>=<text> [--answer <id>=<text> ...]",
+  "       draftforge plan --approve --by <actor>",
+].join("\n");
+
 function parsePlanArgs(args: readonly string[]): PlanOptions {
   if (args.length === 1 && args[0] !== undefined && !args[0].startsWith("--")) {
     return { mode: "start", sourceFile: args[0] };
   }
 
-  if (args.length === 1 && args[0] === "--status") {
-    return { mode: "status" };
-  }
-
-  let approve = false;
+  let mode: "status" | "prompt" | "submit" | "answer" | "approve" | undefined;
+  let responseFile: string | undefined;
   let approvedBy: string | undefined;
+  const answers: Record<string, string> = {};
+
+  const claimMode = (next: NonNullable<typeof mode>): void => {
+    if (mode !== undefined && mode !== next) {
+      throw new CliUsageError(`plan --${mode} cannot be combined with --${next}.`);
+    }
+    mode = next;
+  };
+  const requireValue = (arg: string, value: string | undefined): string => {
+    if (value === undefined || value.startsWith("--")) {
+      throw new CliUsageError(`${arg} requires a value.`);
+    }
+    return value;
+  };
+
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] as string;
-    if (arg === "--approve") {
-      approve = true;
-    } else if (arg === "--by") {
-      const value = args[index + 1];
-      if (value === undefined || value.startsWith("--")) {
-        throw new CliUsageError("--by requires a value.");
+
+    if (arg === "--status") {
+      claimMode("status");
+    } else if (arg === "--prompt") {
+      claimMode("prompt");
+    } else if (arg === "--approve") {
+      claimMode("approve");
+    } else if (arg === "--submit") {
+      claimMode("submit");
+      responseFile = requireValue(arg, args[index + 1]);
+      index += 1;
+    } else if (arg === "--answer") {
+      claimMode("answer");
+      const [questionId, ...rest] = requireValue(arg, args[index + 1]).split("=");
+      if (questionId === undefined || questionId.length === 0 || rest.length === 0) {
+        throw new CliUsageError("--answer requires <id>=<text>.");
       }
-      approvedBy = value;
+      const answer = rest.join("=");
+      if (answer.trim().length === 0) {
+        throw new CliUsageError(`--answer ${questionId} requires non-empty text.`);
+      }
+      if (questionId in answers) {
+        throw new CliUsageError(`--answer ${questionId} was given more than once.`);
+      }
+      answers[questionId] = answer;
+      index += 1;
+    } else if (arg === "--by") {
+      approvedBy = requireValue(arg, args[index + 1]);
       index += 1;
     } else {
       throw new CliUsageError(`Unknown plan option: ${arg}`);
     }
   }
 
-  if (!approve) {
-    throw new CliUsageError(
-      "Usage: draftforge plan <idea.md> | draftforge plan --status | draftforge plan --approve --by <actor>",
-    );
+  if (approvedBy !== undefined && mode !== "approve") {
+    throw new CliUsageError("--by is only valid with --approve.");
   }
-  if (approvedBy === undefined || approvedBy.trim().length === 0) {
-    throw new CliUsageError("Plan approval requires --by <actor>.");
+
+  switch (mode) {
+    case "status":
+      return { mode: "status" };
+    case "prompt":
+      return { mode: "prompt" };
+    case "submit":
+      return { mode: "submit", responseFile: responseFile as string };
+    case "answer":
+      return { mode: "answer", answers };
+    case "approve":
+      if (approvedBy === undefined || approvedBy.trim().length === 0) {
+        throw new CliUsageError("Plan approval requires --by <actor>.");
+      }
+      return { mode: "approve", approvedBy };
+    default:
+      throw new CliUsageError(PLAN_USAGE);
   }
-  return { mode: "approve", approvedBy };
 }
 
 function printPlanningStatus(result: Extract<PlanResult, { readonly mode: "status" }>, io: CliIo): void {
@@ -269,6 +354,11 @@ Commands:
   status            Show workflow position and project health
   plan <idea.md>    Run the architecture interview (Phase 2)
   plan --status     Show resumable planning progress
+  plan --prompt     Print the architect prompt for the current planning stage
+  plan --submit <file>
+                    Apply a recorded architect response (questions or plan)
+  plan --answer <id>=<text>
+                    Record an interview answer; repeatable
   plan --approve    Approve the current valid plan
                       --by <actor>  Required approval identity
   run               Execute ready worker tasks (Phase 4)

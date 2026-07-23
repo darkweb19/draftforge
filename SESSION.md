@@ -4,10 +4,10 @@
 
 ## What was done
 
-- P02-T01 is complete: provider-neutral planning contracts, resumable interview state, DAG and path validation, recoverable locking, file materialization, and an explicit retry-safe approval gate are implemented. Typecheck, lint, 47 tests, session validation, build, built-CLI smoke, and independent review passed.
+- P02-T02 is complete: strict architect response envelope, deterministic architect prompt, model-runner port, boundary parsing, and a provider-neutral CLI loop (plan --prompt, --submit, --answer) that drives the P02-T01 contracts end to end. P02-T03 was split out for the recorded plan revision flow. Typecheck, lint, 57 tests, and build passed.
 - Current position: phase-02 — Architecture interview and planning; stage planning; status in_progress.
-- Current task: None. Next task: None.
-- Completed: P00-T01, P01-T01, P01-T02, P02-T01.
+- Current task: None. Next task: P02-T03.
+- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02.
 
 ## Decisions locked
 
@@ -19,6 +19,9 @@
 - Apply optional config.local.json as a deep override, then validate the merged configuration.
 - Store resumable interview drafts and revision-bound approval in .draftforge/planning.json while keeping runnable task state authoritative in .draftforge/state.json.
 - Materialize approved phase, ADR, and task files before making active-phase roots ready.
+- Accept exactly one architect envelope per turn and derive the expected kind from planning state.
+- Parse raw model text in src/application/ and validate it before it reaches domain state.
+- Drive planning through plan --prompt, --submit, and --answer until Phase 3 adapters exist.
 
 ## Open questions
 
@@ -26,17 +29,17 @@ None
 
 ## Next steps
 
-1. Define P02-T02 for the architect prompt, structured response orchestration, and recorded plan revision flow.
-2. Add deterministic architect fixtures that drive the P02-T01 planning contracts end to end.
-3. Keep provider-backed execution deferred until Phase 3 authentication is available.
+1. Implement P02-T03: recorded plan revision with reason, carried-forward answers, and progress reconciliation.
+2. Keep provider-backed execution deferred until Phase 3 authentication is available.
 
 ## Gotchas
 
 - `templates/schema/*.json` must stay byte-identical to `.draftforge/schema/*.json`; test/templates.test.ts enforces it.
 - Codex CLI, Claude Code, and provider API keys were not detected in this shell; deterministic Phase 2 work can proceed without them.
 - Generated `.draftforge/runs/` events are ignored run artifacts and must not be staged.
-- Approved plans are immutable in P02-T01; recorded plan revision is intentionally deferred to the next Phase 2 task.
+- Approved plans are still immutable; plan --submit and plan --prompt both refuse an approved revision until P02-T03 lands.
+- The architect prompt text is asserted in test/architect.test.ts; changing wording means updating those assertions.
 - If a process crashes during the brief stale-lock recovery claim, verify no DraftForge process is running before removing `.draftforge/state.lock.recovery`.
 - The workspace is OneDrive-backed, so large file operations can be slower than normal.
 
-Last updated: 2026-07-23T16:09:15.441Z by codex
+Last updated: 2026-07-23T18:40:00.000Z by claude

@@ -6,10 +6,10 @@ The lead model decides and delegates. It does not implement. Lower-cost workers 
 
 ## Status
 
-Phase 1 is complete. Phase 2 now has provider-independent planning contracts,
-resumable interview state, DAG validation, and an explicit approval gate.
-Provider-backed architect execution is intentionally deferred. See `PHASES.md`
-and `SESSION.md`.
+Phase 1 is complete. Phase 2 has provider-independent planning contracts,
+resumable interview state, DAG validation, an explicit approval gate, and a
+recorded architect loop you can drive by hand. Provider-backed architect
+execution is intentionally deferred to Phase 3. See `PHASES.md` and `SESSION.md`.
 
 ## Core commands
 
@@ -19,6 +19,9 @@ draftforge doctor
 draftforge status
 draftforge plan <idea.md>
 draftforge plan --status
+draftforge plan --prompt
+draftforge plan --submit <response.json>
+draftforge plan --answer <id>=<text>
 draftforge plan --approve --by <actor>
 draftforge run
 draftforge resume
@@ -30,10 +33,24 @@ checkpoint are wired. `run` and `resume` fail clearly until delegated execution
 is implemented.
 
 `plan <idea.md>` initializes or resumes `.draftforge/planning.json` without
-calling a provider. Architect adapters will submit the one-batch interview and
-structured plan through the same contracts in Phase 3. `plan --approve`
-materializes the accepted phases, ADRs, and task files before making active
-phase roots runnable.
+calling a provider. The full planning loop runs today without any adapter:
+
+```text
+draftforge plan idea.md                     # start or resume a revision
+draftforge plan --prompt                    # print the architect prompt
+draftforge plan --submit questions.json     # apply the one-batch interview
+draftforge plan --answer Q1="Node.js 22"    # record answers, repeatable
+draftforge plan --prompt
+draftforge plan --submit plan.json          # apply the structured plan
+draftforge plan --approve --by <actor>
+```
+
+The architect returns one JSON envelope per turn — `{"kind":"questions",…}` or
+`{"kind":"plan",…}` — and the expected kind is derived from planning state, so an
+off-stage or malformed response is rejected rather than partially applied. Phase 3
+adapters produce the same envelope through the model-runner port. `plan --approve`
+materializes the accepted phases, ADRs, and task files before making active phase
+roots runnable; an approved plan can then change only through a recorded revision.
 
 `status` validates canonical state, the discovered configuration, and `SESSION.md`. `doctor`
 reports those project checks alongside local harness and environment availability. Missing
