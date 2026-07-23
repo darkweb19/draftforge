@@ -31,6 +31,9 @@ API-backed agent) follows the same rules.
 - Never disable safety checks to make a task pass.
 - Prefer the smallest implementation that satisfies the active task.
 - Stop on an architecture conflict rather than inventing a new direction.
+- Use an agentic delegation workflow for coding: the lead thread owns planning,
+  task assignment, review, verification, and state transitions; bounded
+  subagents perform implementation-heavy work.
 
 ## Done means
 

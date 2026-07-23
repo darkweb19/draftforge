@@ -30,6 +30,10 @@
 - Never read, print, persist, or commit secret values.
 - Never disable safety checks to make a task pass.
 - Prefer the smallest implementation that satisfies the active task.
+- Use an agentic delegation workflow for coding: the lead thread owns planning,
+  task assignment, review, verification, and state transitions; bounded
+  subagents perform implementation-heavy work. Apply this rule both while
+  building DraftForge and in every project DraftForge manages.
 
 ## Commands
 
