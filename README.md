@@ -11,7 +11,8 @@ resumable interview state, DAG validation, an explicit approval gate, a
 recorded architect loop you can drive by hand, and recorded plan revision.
 Phase 3 has begun: a role-routed model-runner factory and shared adapter
 reliability (timeout, bounded retry, secret redaction) sit behind the
-model-runner port; the Codex CLI, Claude Code, OpenAI, and Anthropic transports
+model-runner port. Codex CLI and Claude Code are available through local
+subscription-backed authentication; the OpenAI and Anthropic API transports
 follow in the remaining Phase 3 tasks. See `PHASES.md` and `SESSION.md`.
 
 ## Core commands
@@ -132,7 +133,12 @@ Requires Node.js 24 or newer for development. The published CLI target is Node.j
 - API mode invokes provider APIs with keys supplied through environment variables.
 - DraftForge never stores secret values in project state or configuration.
 
-For Codex, `codex login` supports ChatGPT subscription sign-in, and `codex exec` is the stable non-interactive surface used by the future adapter. Model IDs are configuration, not source-code constants.
+For Codex, `codex login` supports ChatGPT subscription sign-in, and the adapter
+uses `codex exec` non-interactively. The Claude Code adapter similarly uses
+`claude --print`. Both send the system and user prompt through stdin instead of
+process arguments. Model IDs are configuration, not source-code constants:
+`provider-default` omits the model flag so the local harness chooses its
+default, while an explicit configured model is forwarded.
 
 ## Provider layer
 
@@ -142,8 +148,10 @@ configured adapter and wraps every call in shared reliability: a per-call
 timeout, bounded retry of transient failures only, and secret redaction on the
 surfaced error. Adapters expose capability discovery as pure data and classify
 failures as transient or terminal; authentication and contract errors are never
-retried. Concrete Codex CLI, Claude Code, OpenAI, and Anthropic adapters land in
-the remaining Phase 3 tasks.
+retried. The Codex CLI and Claude Code adapters share one injectable
+child-process transport, use existing local authentication, and report
+capabilities without launching a process or probing the network. OpenAI and
+Anthropic API adapters land in the remaining Phase 3 tasks.
 
 ## Repository map
 

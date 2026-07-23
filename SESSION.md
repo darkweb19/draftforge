@@ -4,10 +4,10 @@
 
 ## What was done
 
-- P03-T01 is complete: createModelRunner routes architect, worker, and reviewer roles to configured adapters through a typed registry, and shared reliability adds a per-call timeout, bounded retry of transient failures only, and secret redaction. A reusable adapter contract-test suite (test/providers/contract.ts) is ready for P03-T02 and P03-T03, and ADR 0008 records the contract. Registry ships placeholder factories until the real transports land. P03-T02 and P03-T03 are now ready; both may proceed but share src/providers/registry.ts. Typecheck, lint, 87 tests, session check, and build pass.
+- P03-T02 is complete: Codex CLI and Claude Code now implement the model-adapter port through one injectable, shell-free child-process transport. Prompts stay on stdin, provider-default omits model selection, explicit models are forwarded, and typed redacted failures distinguish transient from terminal outcomes. Both adapters pass the shared contract suite against fakes; typecheck, lint, 105 tests, session check, and build pass. Live smoke tests were skipped because neither harness command is installed in this shell.
 - Current position: phase-03 — Provider and harness adapters; stage execution; status in_progress.
-- Current task: None. Next task: P03-T02.
-- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01.
+- Current task: None. Next task: P03-T03.
+- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01, P03-T02.
 
 ## Decisions locked
 
@@ -26,6 +26,7 @@
 - Retain one superseded plan so re-materialization can tell generated files from user edits.
 - Decompose Phase 3 by transport: shared runner/reliability foundation (P03-T01), harness adapters (P03-T02), API adapters (P03-T03), then doctor auth and plan wiring (P03-T04), with every adapter passing one reusable contract-test suite.
 - Adapters map transport failures to AdapterError with a correct retryable flag; the runner centralizes timeout, retry, and redaction so authentication and contract errors are never retried.
+- Codex CLI and Claude Code share an injectable shell-free child-process transport; prompts use stdin, provider-default omits the model flag, and explicit models are forwarded.
 
 ## Open questions
 
@@ -33,18 +34,18 @@ None
 
 ## Next steps
 
-1. Execute P03-T02: implement the Codex CLI and Claude Code harness adapters over a shared child-process transport, passing test/providers/contract.ts against a faked spawn boundary.
-2. Execute P03-T03: implement the OpenAI and Anthropic API adapters over fetch with env keys, passing the same contract suite against an injected fetch; then finish Phase 3 with P03-T04 doctor auth checks and plan-command runner wiring.
+1. Execute P03-T03: implement the OpenAI and Anthropic API adapters over fetch with environment keys, passing the shared contract suite against an injected fetch.
+2. Execute P03-T04 after P03-T03: add doctor authentication checks and wire the plan command to the model runner.
 
 ## Gotchas
 
 - `templates/schema/*.json` must stay byte-identical to `.draftforge/schema/*.json`; test/templates.test.ts enforces it.
-- P03-T02 and P03-T03 both own `src/providers/registry.ts`; run them sequentially so the shared registry edit never races, and keep P03-T01's placeholder entries buildable until each adapter replaces them.
-- Codex CLI, Claude Code, and provider API keys were not detected in this shell; P03-T01 is deterministic and needs none, but P03-T02/T03/T04 live smoke tests require them and must skip (not fail) when absent.
+- P03-T03 must preserve the working Codex CLI and Claude Code entries when it replaces the remaining API placeholders in `src/providers/registry.ts`.
+- Codex CLI, Claude Code, and provider API keys were not detected in this shell; live smoke tests for P03-T02/T03/T04 must skip rather than fail when their auth mode is unavailable.
 - Generated `.draftforge/runs/` events are ignored run artifacts and must not be staged.
 - An approved plan is still immutable in place: plan --submit and plan --prompt refuse it until `plan --revise` starts a recorded revision.
 - The architect prompt text is asserted in test/architect.test.ts; changing wording means updating those assertions.
 - If a process crashes during the brief stale-lock recovery claim, verify no DraftForge process is running before removing `.draftforge/state.lock.recovery`.
 - The workspace is OneDrive-backed, so large file operations can be slower than normal.
 
-Last updated: 2026-07-23T23:45:00.000Z by claude
+Last updated: 2026-07-23T18:14:55.140Z by codex

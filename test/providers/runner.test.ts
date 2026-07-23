@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AdapterId, ProjectConfig } from "../../src/config/config.js";
 import type { AdapterCapabilities, AdapterRequest, ModelAdapter } from "../../src/providers/adapter.js";
+import { resolveAdapter } from "../../src/providers/registry.js";
 import { createModelRunner, roleRoute } from "../../src/providers/runner.js";
 import { AdapterError } from "../../src/providers/reliability.js";
 
@@ -67,12 +68,20 @@ test("createModelRunner surfaces an adapter error after exhausting retries", asy
   assert.equal(calls, 2);
 });
 
-test("the default adapter registry reports unimplemented adapters clearly", async () => {
-  const runner = createModelRunner(config(), { env: {}, reliability: { attempts: 1 } });
-  await assert.rejects(
-    runner.run({ role: "architect", system: "s", user: "u" }),
-    /not implemented yet; it arrives in P03-T02/,
-  );
+test("the default adapter registry exposes harness capabilities without spawning a CLI", () => {
+  assert.deepEqual(resolveAdapter("codex-cli").capabilities, {
+    id: "codex-cli",
+    transport: "harness",
+    authMode: "local-cli",
+    roles: ["architect", "worker", "reviewer"],
+  });
+  assert.deepEqual(resolveAdapter("claude-cli").capabilities, {
+    id: "claude-cli",
+    transport: "harness",
+    authMode: "local-cli",
+    roles: ["architect", "worker", "reviewer"],
+  });
+  assert.throws(() => resolveAdapter("openai-api"), /not implemented yet; it arrives in P03-T03/);
 });
 
 test("roleRoute reports the adapter configured for a role", () => {
