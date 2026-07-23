@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runDoctor } from "./commands/doctor.js";
 import { runInit, type InitOptions } from "./commands/init.js";
+import { runPlan, type PlanOptions, type PlanResult } from "./commands/plan.js";
 import { readProjectState, writeSession } from "./state/files.js";
 import { inspectProjectHealth } from "./state/health.js";
 
@@ -86,10 +87,18 @@ export async function main(
       }
     }
 
-    case "plan":
+    case "plan": {
+      try {
+        return await runPlanCommand(args.slice(1), io, cwd);
+      } catch (error: unknown) {
+        io.error(toErrorMessage(error));
+        return error instanceof CliUsageError ? 2 : 1;
+      }
+    }
+
     case "run":
     case "resume":
-      io.error(`${command} is planned but not implemented in Phase 0.`);
+      io.error(`${command} is planned but not implemented until Phase 4.`);
       return 2;
 
     default:
@@ -97,6 +106,91 @@ export async function main(
       io.out(helpText());
       return 2;
   }
+}
+
+async function runPlanCommand(args: readonly string[], io: CliIo, cwd: string): Promise<number> {
+  const result = await runPlan(resolve(cwd), parsePlanArgs(args));
+
+  if (result.mode === "start") {
+    io.out(
+      result.resumed
+        ? `Resuming planning revision ${result.artifact.revision} from ${result.artifact.sourceFile}.`
+        : `Initialized planning revision ${result.artifact.revision} from ${result.artifact.sourceFile}.`,
+    );
+    io.out("No provider was called; the planning state is ready for an architect adapter.");
+    return 0;
+  }
+
+  if (result.mode === "status") {
+    printPlanningStatus(result, io);
+    return 0;
+  }
+
+  io.out(
+    `Approved planning revision ${result.artifact.revision}. Ready tasks: ${
+      result.readyTaskIds.length === 0 ? "none" : result.readyTaskIds.join(", ")
+    }.`,
+  );
+  return 0;
+}
+
+function parsePlanArgs(args: readonly string[]): PlanOptions {
+  if (args.length === 1 && args[0] !== undefined && !args[0].startsWith("--")) {
+    return { mode: "start", sourceFile: args[0] };
+  }
+
+  if (args.length === 1 && args[0] === "--status") {
+    return { mode: "status" };
+  }
+
+  let approve = false;
+  let approvedBy: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] as string;
+    if (arg === "--approve") {
+      approve = true;
+    } else if (arg === "--by") {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("--")) {
+        throw new CliUsageError("--by requires a value.");
+      }
+      approvedBy = value;
+      index += 1;
+    } else {
+      throw new CliUsageError(`Unknown plan option: ${arg}`);
+    }
+  }
+
+  if (!approve) {
+    throw new CliUsageError(
+      "Usage: draftforge plan <idea.md> | draftforge plan --status | draftforge plan --approve --by <actor>",
+    );
+  }
+  if (approvedBy === undefined || approvedBy.trim().length === 0) {
+    throw new CliUsageError("Plan approval requires --by <actor>.");
+  }
+  return { mode: "approve", approvedBy };
+}
+
+function printPlanningStatus(result: Extract<PlanResult, { readonly mode: "status" }>, io: CliIo): void {
+  const questions = result.artifact.questions.items;
+  const answered = questions.filter((question) => question.answer !== null).length;
+  const blocking = questions.filter(
+    (question) => question.blocking && question.answer === null,
+  ).length;
+
+  io.out(`Planning revision: ${result.artifact.revision}`);
+  io.out(`Source: ${result.artifact.sourceFile}`);
+  io.out(`Status: ${result.artifact.status}`);
+  io.out(`Questions: ${answered}/${questions.length} answered; ${blocking} blocking unanswered`);
+  io.out(`Plan: ${result.artifact.plan === null ? "missing" : "present"}`);
+  io.out(
+    `Approval: ${
+      result.artifact.approval === null
+        ? "not approved"
+        : `approved by ${result.artifact.approval.approvedBy}`
+    }`,
+  );
 }
 
 async function runInitCommand(args: readonly string[], io: CliIo, cwd: string): Promise<number> {
@@ -174,6 +268,9 @@ Commands:
   doctor            Check project health, harnesses, and API-key presence
   status            Show workflow position and project health
   plan <idea.md>    Run the architecture interview (Phase 2)
+  plan --status     Show resumable planning progress
+  plan --approve    Approve the current valid plan
+                      --by <actor>  Required approval identity
   run               Execute ready worker tasks (Phase 4)
   resume            Resume interrupted work (Phase 4)
   handoff           Regenerate SESSION.md from canonical state
@@ -184,6 +281,8 @@ Commands:
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+class CliUsageError extends Error {}
 
 const entryUrl = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
 

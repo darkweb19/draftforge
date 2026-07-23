@@ -1,8 +1,7 @@
-import { open, rm } from "node:fs/promises";
-import { resolve } from "node:path";
 import type { ProjectState, TaskState, TaskStatus } from "../domain/state.js";
 import { appendRunEvent, type RunEvent } from "./events.js";
 import { readProjectState, writeProjectState, writeSession } from "./files.js";
+import { withProjectLock } from "./lock.js";
 
 const ALLOWED_TRANSITIONS = {
   backlog: ["ready"],
@@ -54,18 +53,7 @@ export function transitionTask(state: ProjectState, taskId: string, to: TaskStat
 }
 
 export async function applyTaskTransition(root: string, input: TaskTransitionInput): Promise<ProjectState> {
-  const lockPath = resolve(root, ".draftforge/state.lock");
-  let lock;
-  try {
-    lock = await open(lockPath, "wx");
-  } catch (error: unknown) {
-    if (isAlreadyExists(error)) {
-      throw new Error("Another state transition is already in progress; retry after it completes.");
-    }
-    throw error;
-  }
-
-  try {
+  return withProjectLock(root, "task transition", async () => {
     const state = await readProjectState(root);
     const previous = state.tasks.find((task) => task.id === input.taskId);
     if (previous === undefined) {
@@ -98,10 +86,7 @@ export async function applyTaskTransition(root: string, input: TaskTransitionInp
     await writeProjectState(root, next);
     await writeSession(root, next);
     return next;
-  } finally {
-    await lock.close();
-    await rm(lockPath, { force: true });
-  }
+  });
 }
 
 function transitionWorkflow(
@@ -137,8 +122,4 @@ function transitionWorkflow(
     currentTask: state.workflow.currentTask === taskId ? null : state.workflow.currentTask,
     nextTask,
   };
-}
-
-function isAlreadyExists(error: unknown): boolean {
-  return typeof error === "object" && error !== null && (error as { code?: string }).code === "EEXIST";
 }

@@ -8,7 +8,7 @@ const repoRoot = resolve(import.meta.dirname, "..");
 
 // `templates/schema/` is what `init` ships to new projects; `.draftforge/schema/`
 // is this repository dogfooding the same contract. They must not drift.
-for (const name of ["state.schema.json", "config.schema.json"]) {
+for (const name of ["state.schema.json", "config.schema.json", "planning.schema.json"]) {
   test(`shipped ${name} matches the repository copy`, async () => {
     const shipped = await readFile(resolve(templatesDir(), "schema", name), "utf8");
     const local = await readFile(resolve(repoRoot, ".draftforge/schema", name), "utf8");

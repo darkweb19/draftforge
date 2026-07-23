@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftforge.local/schema/planning.schema.json",
+  "title": "DraftForge planning artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "revision", "sourceFile", "status", "questions", "plan", "approval"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "sourceFile": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["interview", "draft", "approved"] },
+    "questions": { "$ref": "#/$defs/questionBatch" },
+    "plan": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/plan" }
+      ]
+    },
+    "approval": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/approval" }
+      ]
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "projectPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?![\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+$"
+    },
+    "uniqueStrings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonEmptyString" },
+      "uniqueItems": true
+    },
+    "uniqueProjectPaths": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/projectPath" },
+      "uniqueItems": true
+    },
+    "questionBatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "items"],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 1 },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/question" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "prompt", "blocking", "answer"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "prompt": { "$ref": "#/$defs/nonEmptyString" },
+        "blocking": { "type": "boolean" },
+        "answer": {
+          "type": ["string", "null"],
+          "minLength": 1
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "assumptions", "decisions", "phases", "tasks", "risks", "verification"],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 1 },
+        "assumptions": { "$ref": "#/$defs/uniqueStrings" },
+        "decisions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/decision" },
+          "uniqueItems": true
+        },
+        "phases": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/phase" },
+          "uniqueItems": true
+        },
+        "tasks": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/task" },
+          "uniqueItems": true
+        },
+        "risks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/risk" },
+          "uniqueItems": true
+        },
+        "verification": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueStrings" },
+            { "minItems": 1 }
+          ]
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "adrFile", "context", "decision", "consequences"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "title": { "$ref": "#/$defs/nonEmptyString" },
+        "adrFile": {
+          "allOf": [
+            { "$ref": "#/$defs/projectPath" },
+            { "pattern": "^docs[\\\\/]decisions[\\\\/].+\\.md$" }
+          ]
+        },
+        "context": { "$ref": "#/$defs/nonEmptyString" },
+        "decision": { "$ref": "#/$defs/nonEmptyString" },
+        "consequences": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueStrings" },
+            { "minItems": 1 }
+          ]
+        }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "objective", "exitCriteria"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^phase-[0-9]{2}$"
+        },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "objective": { "$ref": "#/$defs/nonEmptyString" },
+        "exitCriteria": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueStrings" },
+            { "minItems": 1 }
+          ]
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "phaseId",
+        "objective",
+        "dependsOn",
+        "ownedPaths",
+        "requiredContext",
+        "relevantAdrs",
+        "acceptanceCriteria",
+        "verification",
+        "exclusions"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^P[0-9]{2}-T[0-9]{2}$"
+        },
+        "title": { "$ref": "#/$defs/nonEmptyString" },
+        "phaseId": {
+          "type": "string",
+          "pattern": "^phase-[0-9]{2}$"
+        },
+        "objective": { "$ref": "#/$defs/nonEmptyString" },
+        "dependsOn": { "$ref": "#/$defs/uniqueStrings" },
+        "ownedPaths": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueProjectPaths" },
+            { "minItems": 1 }
+          ]
+        },
+        "requiredContext": { "$ref": "#/$defs/uniqueProjectPaths" },
+        "relevantAdrs": { "$ref": "#/$defs/uniqueProjectPaths" },
+        "acceptanceCriteria": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueStrings" },
+            { "minItems": 1 }
+          ]
+        },
+        "verification": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueStrings" },
+            { "minItems": 1 }
+          ]
+        },
+        "exclusions": { "$ref": "#/$defs/uniqueStrings" }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "mitigation"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "description": { "$ref": "#/$defs/nonEmptyString" },
+        "mitigation": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "approvedAt", "approvedBy"],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 1 },
+        "approvedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "approvedBy": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    }
+  }
+}

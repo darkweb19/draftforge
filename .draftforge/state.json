@@ -9,7 +9,7 @@
     "phaseId": "phase-02",
     "phaseName": "Architecture interview and planning",
     "stage": "planning",
-    "status": "not_started",
+    "status": "in_progress",
     "currentTask": null,
     "nextTask": null
   },
@@ -27,7 +27,7 @@
     {
       "id": "phase-02",
       "name": "Architecture interview and planning",
-      "status": "not_started"
+      "status": "in_progress"
     },
     {
       "id": "phase-03",
@@ -75,37 +75,51 @@
       "dependsOn": [
         "P01-T01"
       ]
+    },
+    {
+      "id": "P02-T01",
+      "title": "Deterministic planning contracts and approval gate",
+      "status": "done",
+      "taskFile": ".draftforge/tasks/P02-T01.md",
+      "dependsOn": [
+        "P01-T02"
+      ]
     }
   ],
   "decisions": [
     "docs/decisions/0001-node-typescript-cli.md",
     "docs/decisions/0002-provider-port-and-role-routing.md",
     "docs/decisions/0003-canonical-file-state.md",
-    "docs/decisions/0004-delegated-execution-contract.md"
+    "docs/decisions/0004-delegated-execution-contract.md",
+    "docs/decisions/0005-planning-artifact-and-approval-gate.md"
   ],
   "handoff": {
-    "updatedAt": "2026-07-22T19:00:00.000Z",
+    "updatedAt": "2026-07-23T16:09:15.441Z",
     "updatedBy": "codex",
-    "summary": "P01-T02 and Phase 1 are complete: transitions are serialized and evented, layered configuration is validated, status and doctor report project health, and fresh, resumed, and corrupted fixtures are covered. Typecheck, lint, 30 tests, session validation, build, and built-CLI smoke runs passed.",
+    "summary": "P02-T01 is complete: provider-neutral planning contracts, resumable interview state, DAG and path validation, recoverable locking, file materialization, and an explicit retry-safe approval gate are implemented. Typecheck, lint, 47 tests, session validation, build, built-CLI smoke, and independent review passed.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
       "Use .draftforge/state.json as canonical state and generate SESSION.md from it.",
       "Use DAG task contracts, isolated workers, and independent review before completion.",
       "Serialize task transitions with a project lock and append redacted events before atomic snapshot writes.",
-      "Apply optional config.local.json as a deep override, then validate the merged configuration."
+      "Apply optional config.local.json as a deep override, then validate the merged configuration.",
+      "Store resumable interview drafts and revision-bound approval in .draftforge/planning.json while keeping runnable task state authoritative in .draftforge/state.json.",
+      "Materialize approved phase, ADR, and task files before making active-phase roots ready."
     ],
     "openQuestions": [],
     "blockers": [],
     "nextActions": [
-      "Define the first Phase 2 task contract for the architecture interview and planning workflow.",
-      "Implement the one-batch resumable interview and explicit plan approval gate with deterministic fixtures.",
+      "Define P02-T02 for the architect prompt, structured response orchestration, and recorded plan revision flow.",
+      "Add deterministic architect fixtures that drive the P02-T01 planning contracts end to end.",
       "Keep provider-backed execution deferred until Phase 3 authentication is available."
     ],
     "gotchas": [
       "`templates/schema/*.json` must stay byte-identical to `.draftforge/schema/*.json`; test/templates.test.ts enforces it.",
       "Codex CLI, Claude Code, and provider API keys were not detected in this shell; deterministic Phase 2 work can proceed without them.",
       "Generated `.draftforge/runs/` events are ignored run artifacts and must not be staged.",
+      "Approved plans are immutable in P02-T01; recorded plan revision is intentionally deferred to the next Phase 2 task.",
+      "If a process crashes during the brief stale-lock recovery claim, verify no DraftForge process is running before removing `.draftforge/state.lock.recovery`.",
       "The workspace is OneDrive-backed, so large file operations can be slower than normal."
     ]
   }

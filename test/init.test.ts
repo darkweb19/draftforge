@@ -28,6 +28,7 @@ test("initializes an empty directory with valid state and handoff", async () => 
       ".draftforge/state.json",
       ".draftforge/config.json",
       ".draftforge/schema/state.schema.json",
+      ".draftforge/schema/planning.schema.json",
       "SESSION.md",
       "AGENTS.md",
       "CLAUDE.md",

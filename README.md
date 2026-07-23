@@ -6,7 +6,10 @@ The lead model decides and delegates. It does not implement. Lower-cost workers 
 
 ## Status
 
-Phase 1, local project lifecycle, is complete. Phase 2 architecture interview and planning is next. Provider-backed orchestration is intentionally not implemented yet. See `PHASES.md` and `SESSION.md`.
+Phase 1 is complete. Phase 2 now has provider-independent planning contracts,
+resumable interview state, DAG validation, and an explicit approval gate.
+Provider-backed architect execution is intentionally deferred. See `PHASES.md`
+and `SESSION.md`.
 
 ## Core commands
 
@@ -15,12 +18,22 @@ draftforge init [directory] [--name <name>] [--force]
 draftforge doctor
 draftforge status
 draftforge plan <idea.md>
+draftforge plan --status
+draftforge plan --approve --by <actor>
 draftforge run
 draftforge resume
 draftforge handoff
 ```
 
-`init`, `doctor`, `status`, and `handoff` are wired. `plan`, `run`, and `resume` fail clearly until their owning phase is implemented.
+`init`, `doctor`, `status`, `handoff`, and the provider-neutral planning
+checkpoint are wired. `run` and `resume` fail clearly until delegated execution
+is implemented.
+
+`plan <idea.md>` initializes or resumes `.draftforge/planning.json` without
+calling a provider. Architect adapters will submit the one-batch interview and
+structured plan through the same contracts in Phase 3. `plan --approve`
+materializes the accepted phases, ADRs, and task files before making active
+phase roots runnable.
 
 `status` validates canonical state, the discovered configuration, and `SESSION.md`. `doctor`
 reports those project checks alongside local harness and environment availability. Missing
@@ -39,7 +52,7 @@ configuration, the JSON Schemas, shared harness instructions, and an `idea.md` d
 my-app/
   .draftforge/state.json     Canonical state (phase-00, no tasks yet)
   .draftforge/config.json    Role routes and limits
-  .draftforge/schema/        State and configuration schemas
+  .draftforge/schema/        State, configuration, and planning schemas
   .draftforge/tasks/         Task contracts, created during planning
   .draftforge/runs/          Redacted run events
   AGENTS.md CLAUDE.md PHASES.md SESSION.md idea.md
