@@ -1,8 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import {
+  applyArchitectResponse,
+  parseArchitectResponse,
+} from "../application/architect.js";
+import { architectStage, buildArchitectPrompt } from "../application/architect-prompt.js";
+import type { ModelRequest } from "../application/ports.js";
+import {
   approvePlanningArtifact,
   createPlanningArtifact,
+  recordQuestionAnswers,
   type PlanningApprovalResult,
 } from "../application/planning.js";
 import {
@@ -10,6 +17,7 @@ import {
   planApprovedFiles,
   writePlanningFiles,
 } from "../application/planning-files.js";
+import type { ArchitectResponseKind } from "../domain/architect.js";
 import type { PlanningArtifact } from "../domain/planning.js";
 import { readProjectState, writeProjectState, writeSession } from "../state/files.js";
 import {
@@ -21,6 +29,9 @@ import { withProjectLock } from "../state/lock.js";
 export type PlanOptions =
   | { readonly mode: "start"; readonly sourceFile: string }
   | { readonly mode: "status" }
+  | { readonly mode: "prompt" }
+  | { readonly mode: "submit"; readonly responseFile: string }
+  | { readonly mode: "answer"; readonly answers: Readonly<Record<string, string>> }
   | {
       readonly mode: "approve";
       readonly approvedBy: string;
@@ -30,6 +41,22 @@ export type PlanOptions =
 export type PlanResult =
   | { readonly mode: "start"; readonly artifact: PlanningArtifact; readonly resumed: boolean }
   | { readonly mode: "status"; readonly artifact: PlanningArtifact }
+  | {
+      readonly mode: "prompt";
+      readonly artifact: PlanningArtifact;
+      readonly request: ModelRequest;
+      readonly stage: ArchitectResponseKind;
+    }
+  | {
+      readonly mode: "submit";
+      readonly artifact: PlanningArtifact;
+      readonly applied: ArchitectResponseKind;
+    }
+  | {
+      readonly mode: "answer";
+      readonly artifact: PlanningArtifact;
+      readonly answeredIds: readonly string[];
+    }
   | {
       readonly mode: "approve";
       readonly artifact: PlanningArtifact;
@@ -61,6 +88,38 @@ export async function runPlan(root: string, options: PlanOptions): Promise<PlanR
 
   if (options.mode === "status") {
     return { mode: "status", artifact: await readPlanningArtifact(projectRoot) };
+  }
+
+  if (options.mode === "prompt") {
+    const artifact = await readPlanningArtifact(projectRoot);
+    const state = await readProjectState(projectRoot);
+    const request = buildArchitectPrompt({
+      artifact,
+      projectName: state.project.name,
+      sourceText: await readSourceText(projectRoot, artifact.sourceFile),
+    });
+    return { mode: "prompt", artifact, request, stage: architectStage(artifact) };
+  }
+
+  if (options.mode === "submit") {
+    return withProjectLock(projectRoot, "architect response", async () => {
+      const artifact = await readPlanningArtifact(projectRoot);
+      const response = parseArchitectResponse(
+        await readResponseText(projectRoot, options.responseFile),
+      );
+      const next = applyArchitectResponse(artifact, response);
+      await writePlanningArtifact(projectRoot, next);
+      return { mode: "submit", artifact: next, applied: response.kind };
+    });
+  }
+
+  if (options.mode === "answer") {
+    return withProjectLock(projectRoot, "planning answers", async () => {
+      const artifact = await readPlanningArtifact(projectRoot);
+      const next = recordQuestionAnswers(artifact, options.answers);
+      await writePlanningArtifact(projectRoot, next);
+      return { mode: "answer", artifact: next, answeredIds: Object.keys(options.answers) };
+    });
   }
 
   return withProjectLock(projectRoot, "plan approval", async () => {
@@ -114,11 +173,29 @@ async function readPlanningArtifactIfPresent(root: string): Promise<PlanningArti
 }
 
 async function assertReadableSource(root: string, sourceFile: string): Promise<void> {
+  await readSourceText(root, sourceFile);
+}
+
+async function readSourceText(root: string, sourceFile: string): Promise<string> {
   try {
-    await readFile(resolve(root, sourceFile), "utf8");
+    return await readFile(resolve(root, sourceFile), "utf8");
   } catch (error: unknown) {
     if (isNotFound(error)) {
       throw new Error(`Planning source does not exist: ${sourceFile}.`);
+    }
+    throw error;
+  }
+}
+
+async function readResponseText(root: string, responseFile: string): Promise<string> {
+  if (responseFile.trim().length === 0) {
+    throw new Error("Architect response file must be a non-empty path.");
+  }
+  try {
+    return await readFile(resolve(root, responseFile), "utf8");
+  } catch (error: unknown) {
+    if (isNotFound(error)) {
+      throw new Error(`Architect response file does not exist: ${responseFile}.`);
     }
     throw error;
   }
