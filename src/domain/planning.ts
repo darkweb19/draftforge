@@ -66,6 +66,21 @@ export interface PlanningApproval {
   readonly approvedBy: string;
 }
 
+/**
+ * One recorded plan revision. A revision never happens implicitly: it names its
+ * predecessor, a reason, an actor, and every task it deliberately reopened or
+ * retired.
+ */
+export interface PlanningRevisionRecord {
+  readonly revision: number;
+  readonly previousRevision: number;
+  readonly reason: string;
+  readonly requestedBy: string;
+  readonly requestedAt: string;
+  readonly reopenedTasks: readonly string[];
+  readonly retiredTasks: readonly string[];
+}
+
 export interface PlanningArtifact {
   readonly $schema?: string;
   readonly schemaVersion: typeof PLANNING_SCHEMA_VERSION;
@@ -75,6 +90,12 @@ export interface PlanningArtifact {
   readonly questions: PlanningQuestionBatch;
   readonly plan: PlanningPlan | null;
   readonly approval: PlanningApproval | null;
+  readonly revisions: readonly PlanningRevisionRecord[];
+  /**
+   * The last approved plan a revision superseded. Retained so re-materialization
+   * can tell a file DraftForge generated from a file the user edited.
+   */
+  readonly supersededPlan: PlanningPlan | null;
 }
 
 const PLANNING_STATUSES: readonly PlanningStatus[] = ["interview", "draft", "approved"];
@@ -97,6 +118,8 @@ export function assertPlanningArtifact(value: unknown): asserts value is Plannin
     "questions",
     "plan",
     "approval",
+    "revisions",
+    "supersededPlan",
   ]);
 
   if (value.$schema !== undefined && typeof value.$schema !== "string") {
@@ -117,10 +140,25 @@ export function assertPlanningArtifact(value: unknown): asserts value is Plannin
   if (value.approval !== null) {
     assertApproval(value.approval);
   }
+  assertRevisionHistory(value.revisions, value.revision);
+  if (value.supersededPlan !== null) {
+    assertPlanningPlan(value.supersededPlan);
+    if (value.supersededPlan.revision >= value.revision) {
+      throw new Error("supersededPlan.revision must precede the planning artifact revision.");
+    }
+  }
 
   const revision = value.revision;
-  if (value.questions.revision !== revision) {
-    throw new Error("questions.revision must match planning artifact revision.");
+  if (value.questions.revision > revision) {
+    throw new Error("questions.revision must not exceed the planning artifact revision.");
+  }
+  if (value.questions.revision < revision) {
+    // Questions carried into a revision that has not produced its own batch yet.
+    if (value.plan !== null || value.approval !== null || value.status !== "interview") {
+      throw new Error(
+        `Planning revision ${revision} must record its own question batch before a plan.`,
+      );
+    }
   }
   if (value.plan !== null && value.plan.revision !== revision) {
     throw new Error("plan.revision must match planning artifact revision.");
@@ -352,17 +390,78 @@ function assertRisks(value: unknown): void {
   }
 }
 
+function assertRevisionHistory(
+  value: unknown,
+  revision: number,
+): asserts value is readonly PlanningRevisionRecord[] {
+  if (!Array.isArray(value)) {
+    throw new Error("revisions must be an array.");
+  }
+
+  let previous = 1;
+  for (const [index, record] of value.entries()) {
+    const path = `revisions[${index}]`;
+    if (!isRecord(record)) {
+      throw new Error(`${path} must be an object.`);
+    }
+    assertOnlyKeys(record, path, [
+      "revision",
+      "previousRevision",
+      "reason",
+      "requestedBy",
+      "requestedAt",
+      "reopenedTasks",
+      "retiredTasks",
+    ]);
+    assertPositiveInteger(record.revision, `${path}.revision`);
+    assertPositiveInteger(record.previousRevision, `${path}.previousRevision`);
+    assertNonEmptyString(record.reason, `${path}.reason`);
+    assertNonEmptyString(record.requestedBy, `${path}.requestedBy`);
+    assertDateTime(record.requestedAt, `${path}.requestedAt`);
+    assertUniqueStringArray(record.reopenedTasks, `${path}.reopenedTasks`);
+    assertUniqueStringArray(record.retiredTasks, `${path}.retiredTasks`);
+    for (const [field, ids] of [
+      ["reopenedTasks", record.reopenedTasks],
+      ["retiredTasks", record.retiredTasks],
+    ] as const) {
+      for (const [idIndex, id] of ids.entries()) {
+        assertPattern(id, `${path}.${field}[${idIndex}]`, TASK_ID_PATTERN);
+      }
+    }
+
+    if (record.previousRevision !== previous) {
+      throw new Error(
+        `${path}.previousRevision must be ${previous}, the revision it supersedes.`,
+      );
+    }
+    if (record.revision <= record.previousRevision) {
+      throw new Error(`${path}.revision must increase beyond its predecessor.`);
+    }
+    previous = record.revision;
+  }
+
+  if (previous !== revision) {
+    throw new Error(
+      `revisions must end at the current planning revision ${revision}, not ${previous}.`,
+    );
+  }
+}
+
 function assertApproval(value: unknown): asserts value is PlanningApproval {
   if (!isRecord(value)) {
     throw new Error("approval must be an object or null.");
   }
   assertOnlyKeys(value, "approval", ["revision", "approvedAt", "approvedBy"]);
   assertPositiveInteger(value.revision, "approval.revision");
-  assertNonEmptyString(value.approvedAt, "approval.approvedAt");
-  if (!DATE_TIME_PATTERN.test(value.approvedAt) || Number.isNaN(Date.parse(value.approvedAt))) {
-    throw new Error("approval.approvedAt must be a valid date-time string.");
-  }
+  assertDateTime(value.approvedAt, "approval.approvedAt");
   assertNonEmptyString(value.approvedBy, "approval.approvedBy");
+}
+
+function assertDateTime(value: unknown, path: string): asserts value is string {
+  assertNonEmptyString(value, path);
+  if (!DATE_TIME_PATTERN.test(value) || Number.isNaN(Date.parse(value))) {
+    throw new Error(`${path} must be a valid date-time string.`);
+  }
 }
 
 function assertAcyclicTaskGraph(tasks: ReadonlyMap<string, readonly string[]>): void {

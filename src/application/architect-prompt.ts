@@ -17,6 +17,11 @@ export function architectStage(artifact: PlanningArtifact): ArchitectResponseKin
   if (artifact.status === "interview" && artifact.questions.items.length === 0) {
     return "questions";
   }
+  if (artifact.questions.revision < artifact.revision) {
+    // A revision re-opens the interview: the architect restates the batch for the
+    // new revision, and recorded answers carry forward into it.
+    return "questions";
+  }
   const blocking = artifact.questions.items.filter(
     (question) => question.blocking && question.answer === null,
   );
@@ -38,10 +43,11 @@ export function buildArchitectPrompt(input: ArchitectPromptInput): ModelRequest 
   }
 
   const stage = architectStage(artifact);
+  const currentBatch = artifact.questions.revision === artifact.revision;
   const outstanding = artifact.questions.items.filter(
     (question) => question.blocking && question.answer === null,
   );
-  if (stage === "questions" && outstanding.length > 0) {
+  if (stage === "questions" && currentBatch && outstanding.length > 0) {
     throw new Error(
       `Planning revision ${artifact.revision} already has a question batch; answer ${outstanding
         .map((question) => question.id)
@@ -60,6 +66,8 @@ export function buildArchitectPrompt(input: ArchitectPromptInput): ModelRequest 
       `# Source draft (${artifact.sourceFile})`,
       "",
       sourceText.trimEnd(),
+      "",
+      revisionSection(artifact),
       "",
       answeredSection(artifact),
       "",
@@ -84,6 +92,28 @@ function systemPrompt(): string {
     "Reply with a single JSON object and nothing else. No prose, no explanation.",
     "A fenced ```json block is accepted; anything else is rejected.",
   ].join("\n");
+}
+
+function revisionSection(artifact: PlanningArtifact): string {
+  const record = artifact.revisions.at(-1);
+  if (record === undefined || record.revision !== artifact.revision) {
+    return "# Revision\n\nThis is the first planning revision.";
+  }
+  return [
+    "# Revision",
+    "",
+    `Revision ${record.revision} supersedes ${record.previousRevision}, requested by ${record.requestedBy}.`,
+    `Reason: ${record.reason}`,
+    `Reopened tasks: ${listOrNone(record.reopenedTasks)}`,
+    `Retired tasks: ${listOrNone(record.retiredTasks)}`,
+    "",
+    "Keep every task ID whose work is finished or in flight unless it is listed as",
+    "retired above. Reuse existing IDs for work that is unchanged.",
+  ].join("\n");
+}
+
+function listOrNone(ids: readonly string[]): string {
+  return ids.length === 0 ? "none" : ids.join(", ");
 }
 
 function answeredSection(artifact: PlanningArtifact): string {

@@ -1,0 +1,26 @@
+{
+  "kind": "questions",
+  "questions": {
+    "revision": 2,
+    "items": [
+      {
+        "id": "Q1",
+        "prompt": "Which runtime should the tracker target?",
+        "blocking": true,
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "prompt": "Should the first release include a web UI?",
+        "blocking": false,
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "prompt": "Should reporting export CSV as well as text?",
+        "blocking": true,
+        "answer": null
+      }
+    ]
+  }
+}

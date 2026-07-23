@@ -4,7 +4,17 @@
   "title": "DraftForge planning artifact",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "revision", "sourceFile", "status", "questions", "plan", "approval"],
+  "required": [
+    "schemaVersion",
+    "revision",
+    "sourceFile",
+    "status",
+    "questions",
+    "plan",
+    "approval",
+    "revisions",
+    "supersededPlan"
+  ],
   "properties": {
     "$schema": { "type": "string" },
     "schemaVersion": { "const": 1 },
@@ -22,6 +32,16 @@
       "oneOf": [
         { "type": "null" },
         { "$ref": "#/$defs/approval" }
+      ]
+    },
+    "revisions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/revisionRecord" }
+    },
+    "supersededPlan": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/plan" }
       ]
     }
   },
@@ -210,6 +230,43 @@
         "id": { "$ref": "#/$defs/nonEmptyString" },
         "description": { "$ref": "#/$defs/nonEmptyString" },
         "mitigation": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "taskId": {
+      "type": "string",
+      "pattern": "^P[0-9]{2}-T[0-9]{2}$"
+    },
+    "revisionRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "previousRevision",
+        "reason",
+        "requestedBy",
+        "requestedAt",
+        "reopenedTasks",
+        "retiredTasks"
+      ],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 2 },
+        "previousRevision": { "type": "integer", "minimum": 1 },
+        "reason": { "$ref": "#/$defs/nonEmptyString" },
+        "requestedBy": { "$ref": "#/$defs/nonEmptyString" },
+        "requestedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reopenedTasks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/taskId" },
+          "uniqueItems": true
+        },
+        "retiredTasks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/taskId" },
+          "uniqueItems": true
+        }
       }
     },
     "approval": {

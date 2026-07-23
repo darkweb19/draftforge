@@ -1,0 +1,88 @@
+{
+  "kind": "plan",
+  "plan": {
+    "revision": 2,
+    "assumptions": ["A single local user runs the tracker from a terminal."],
+    "decisions": [
+      {
+        "id": "ADR-001",
+        "title": "Node.js CLI runtime",
+        "adrFile": "docs/decisions/0001-node-cli-runtime.md",
+        "context": "The tracker must run without a server or browser.",
+        "decision": "Ship a Node.js CLI with local JSON persistence.",
+        "consequences": ["Node.js 22 or newer is required to run the tracker."]
+      },
+      {
+        "id": "ADR-002",
+        "title": "CSV export",
+        "adrFile": "docs/decisions/0002-csv-export.md",
+        "context": "Reporting must feed a spreadsheet.",
+        "decision": "Render reports as text and CSV from one model.",
+        "consequences": ["Report rendering gains a second output writer."]
+      }
+    ],
+    "phases": [
+      {
+        "id": "phase-01",
+        "name": "Local tracker core",
+        "objective": "Store and list tasks from the command line.",
+        "exitCriteria": ["Tasks survive a restart.", "npm test passes."]
+      },
+      {
+        "id": "phase-02",
+        "name": "Reporting",
+        "objective": "Summarize tracked work in text and CSV.",
+        "exitCriteria": ["A weekly summary renders from stored tasks."]
+      }
+    ],
+    "tasks": [
+      {
+        "id": "P01-T01",
+        "title": "Persist tasks to a local JSON store",
+        "phaseId": "phase-01",
+        "objective": "Create, read, and update tasks on disk atomically.",
+        "dependsOn": [],
+        "ownedPaths": ["src/store/"],
+        "requiredContext": ["docs/decisions/0001-node-cli-runtime.md"],
+        "relevantAdrs": ["docs/decisions/0001-node-cli-runtime.md"],
+        "acceptanceCriteria": ["Tasks survive a process restart."],
+        "verification": ["npm test"],
+        "exclusions": ["No network access."]
+      },
+      {
+        "id": "P01-T02",
+        "title": "Add the add and list commands",
+        "phaseId": "phase-01",
+        "objective": "Expose the store through the CLI.",
+        "dependsOn": ["P01-T01"],
+        "ownedPaths": ["src/commands/"],
+        "requiredContext": [],
+        "relevantAdrs": ["docs/decisions/0001-node-cli-runtime.md"],
+        "acceptanceCriteria": ["add and list round-trip a task."],
+        "verification": ["npm test"],
+        "exclusions": []
+      },
+      {
+        "id": "P02-T02",
+        "title": "Render weekly summaries as text and CSV",
+        "phaseId": "phase-02",
+        "objective": "Summarize completed tasks for a date range in both formats.",
+        "dependsOn": ["P01-T02"],
+        "ownedPaths": ["src/report/"],
+        "requiredContext": [],
+        "relevantAdrs": ["docs/decisions/0002-csv-export.md"],
+        "acceptanceCriteria": ["The summary counts tasks by status.", "CSV output parses."],
+        "verification": ["npm test"],
+        "exclusions": []
+      }
+    ],
+    "risks": [
+      {
+        "id": "R1",
+        "description": "Concurrent writes could corrupt the JSON store.",
+        "mitigation": "Write through a temporary file and rename atomically."
+      }
+    ],
+    "verification": ["npm test"]
+  }
+}

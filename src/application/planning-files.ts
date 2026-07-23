@@ -5,20 +5,32 @@ import type {
   PlanningPlan,
   PlanningTask,
 } from "../domain/planning.js";
+import type { ProjectState, TaskStatus } from "../domain/state.js";
 import { writeFileAtomic } from "../state/files.js";
 
 export interface PlannedPlanningFile {
   readonly path: string;
   readonly contents: string;
   readonly mayReplaceInitialTemplate?: boolean;
+  /** What a superseded plan rendered at this path, if DraftForge wrote it. */
+  readonly replaces?: string;
 }
 
-export function planApprovedFiles(plan: PlanningPlan): readonly PlannedPlanningFile[] {
+/**
+ * `state`, when given, supplies reconciled task and phase statuses so a revision
+ * renders the progress it kept instead of a fresh-plan guess.
+ */
+export function planApprovedFiles(
+  plan: PlanningPlan,
+  state?: ProjectState,
+): readonly PlannedPlanningFile[] {
   const activePhaseId = plan.phases[0]?.id;
+  const taskStatus = new Map((state?.tasks ?? []).map((task) => [task.id, task.status]));
+  const phaseStatus = new Map((state?.phases ?? []).map((phase) => [phase.id, phase.status]));
   return [
     {
       path: "PHASES.md",
-      contents: renderPhases(plan),
+      contents: renderPhases(plan, phaseStatus),
       mayReplaceInitialTemplate: true,
     },
     ...plan.decisions.map((decision) => ({
@@ -29,10 +41,27 @@ export function planApprovedFiles(plan: PlanningPlan): readonly PlannedPlanningF
       path: `.draftforge/tasks/${task.id}.md`,
       contents: renderTask(
         task,
-        task.phaseId === activePhaseId && task.dependsOn.length === 0 ? "ready" : "backlog",
+        taskStatus.get(task.id) ??
+          (task.phaseId === activePhaseId && task.dependsOn.length === 0 ? "ready" : "backlog"),
       ),
     })),
   ];
+}
+
+/**
+ * Mark files a superseded plan generated as replaceable. Content is compared
+ * ignoring status lines, because status drifts with recorded progress while the
+ * rest of a generated file does not.
+ */
+export function planRevisionFiles(
+  files: readonly PlannedPlanningFile[],
+  superseded: readonly PlannedPlanningFile[],
+): readonly PlannedPlanningFile[] {
+  const previous = new Map(superseded.map((file) => [normalizeProjectPath(file.path), file.contents]));
+  return files.map((file) => {
+    const replaces = previous.get(normalizeProjectPath(file.path));
+    return replaces === undefined ? file : { ...file, replaces };
+  });
 }
 
 export async function assertPlanningFilesWritable(
@@ -44,11 +73,7 @@ export async function assertPlanningFilesWritable(
     await assertNoSymlinkedOutput(root, file.path);
     const path = safeOutputPath(root, file.path);
     const existing = await readFileOrNull(path);
-    if (
-      existing !== null &&
-      existing !== file.contents &&
-      !(file.mayReplaceInitialTemplate === true && isInitialPhasesTemplate(existing))
-    ) {
+    if (existing !== null && existing !== file.contents && !isReplaceable(existing, file)) {
       conflicts.push(file.path);
     }
   }
@@ -58,6 +83,23 @@ export async function assertPlanningFilesWritable(
       `Approved plan would overwrite existing project files: ${conflicts.join(", ")}.`,
     );
   }
+}
+
+/**
+ * A generated file may be rewritten when its content still matches what
+ * DraftForge wrote — for this plan or the one it supersedes — ignoring status
+ * lines, which drift with recorded progress. Anything else is a user edit.
+ */
+function isReplaceable(existing: string, file: PlannedPlanningFile): boolean {
+  if (file.mayReplaceInitialTemplate === true && isInitialPhasesTemplate(existing)) {
+    return true;
+  }
+  const generated = [file.contents, ...(file.replaces === undefined ? [] : [file.replaces])];
+  return generated.some((candidate) => withoutStatusLines(existing) === withoutStatusLines(candidate));
+}
+
+function withoutStatusLines(contents: string): string {
+  return contents.replaceAll(/^Status: .*$/gm, "Status:");
 }
 
 export async function writePlanningFiles(
@@ -70,11 +112,21 @@ export async function writePlanningFiles(
   }
 }
 
-function renderPhases(plan: PlanningPlan): string {
+const PHASE_STATUS_LABELS = {
+  not_started: "not started",
+  in_progress: "in progress",
+  blocked: "blocked",
+  complete: "complete",
+} as const;
+
+function renderPhases(
+  plan: PlanningPlan,
+  phaseStatus: ReadonlyMap<string, keyof typeof PHASE_STATUS_LABELS>,
+): string {
   const sections = plan.phases.map(
     (phase, index) => `## ${phase.id} — ${phase.name}
 
-Status: ${index === 0 ? "in progress" : "not started"}
+Status: ${PHASE_STATUS_LABELS[phaseStatus.get(phase.id) ?? (index === 0 ? "in_progress" : "not_started")]}
 
 ${phase.objective}
 
@@ -110,7 +162,7 @@ ${renderList(decision.consequences)}
 `;
 }
 
-function renderTask(task: PlanningTask, status: "ready" | "backlog"): string {
+function renderTask(task: PlanningTask, status: TaskStatus): string {
   return `# ${task.id} — ${task.title}
 
 Status: ${status}

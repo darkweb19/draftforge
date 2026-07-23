@@ -4,10 +4,10 @@
 
 ## What was done
 
-- P02-T02 is complete: strict architect response envelope, deterministic architect prompt, model-runner port, boundary parsing, and a provider-neutral CLI loop (plan --prompt, --submit, --answer) that drives the P02-T01 contracts end to end. P02-T03 was split out for the recorded plan revision flow. Typecheck, lint, 57 tests, and build passed.
-- Current position: phase-02 — Architecture interview and planning; stage planning; status in_progress.
-- Current task: None. Next task: P02-T03.
-- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02.
+- P02-T03 is complete: plan --revise records reason, actor, and predecessor, withdraws superseded readiness, reopens the interview with answers carried forward, and reconciles the revised task graph against recorded progress instead of resetting it. Phase 2 is closed; Phase 3 needs its task contracts defined. Typecheck, lint, 69 tests, session check, and build passed.
+- Current position: phase-03 — Provider and harness adapters; stage planning; status in_progress.
+- Current task: None. Next task: None.
+- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03.
 
 ## Decisions locked
 
@@ -22,6 +22,8 @@
 - Accept exactly one architect envelope per turn and derive the expected kind from planning state.
 - Parse raw model text in src/application/ and validate it before it reaches domain state.
 - Drive planning through plan --prompt, --submit, and --answer until Phase 3 adapters exist.
+- Change an approved plan only through a recorded revision that carries answers forward and preserves recorded progress.
+- Retain one superseded plan so re-materialization can tell generated files from user edits.
 
 ## Open questions
 
@@ -29,17 +31,18 @@ None
 
 ## Next steps
 
-1. Implement P02-T03: recorded plan revision with reason, carried-forward answers, and progress reconciliation.
-2. Keep provider-backed execution deferred until Phase 3 authentication is available.
+1. Define the Phase 3 task contracts for the Codex CLI, Claude Code, OpenAI, and Anthropic adapters behind the existing model-runner port.
+2. Extend doctor with per-adapter presence and authentication checks that never print secret values.
 
 ## Gotchas
 
 - `templates/schema/*.json` must stay byte-identical to `.draftforge/schema/*.json`; test/templates.test.ts enforces it.
 - Codex CLI, Claude Code, and provider API keys were not detected in this shell; deterministic Phase 2 work can proceed without them.
 - Generated `.draftforge/runs/` events are ignored run artifacts and must not be staged.
-- Approved plans are still immutable; plan --submit and plan --prompt both refuse an approved revision until P02-T03 lands.
+- An approved plan is still immutable in place: plan --submit and plan --prompt refuse it until `plan --revise` starts a recorded revision.
+- A revision restates its question batch on purpose, so `plan --prompt` asks for questions before a plan even when nothing new is being asked.
 - The architect prompt text is asserted in test/architect.test.ts; changing wording means updating those assertions.
 - If a process crashes during the brief stale-lock recovery claim, verify no DraftForge process is running before removing `.draftforge/state.lock.recovery`.
 - The workspace is OneDrive-backed, so large file operations can be slower than normal.
 
-Last updated: 2026-07-23T18:40:00.000Z by claude
+Last updated: 2026-07-23T21:15:00.000Z by claude

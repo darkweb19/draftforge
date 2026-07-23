@@ -7,9 +7,10 @@ The lead model decides and delegates. It does not implement. Lower-cost workers 
 ## Status
 
 Phase 1 is complete. Phase 2 has provider-independent planning contracts,
-resumable interview state, DAG validation, an explicit approval gate, and a
-recorded architect loop you can drive by hand. Provider-backed architect
-execution is intentionally deferred to Phase 3. See `PHASES.md` and `SESSION.md`.
+resumable interview state, DAG validation, an explicit approval gate, a
+recorded architect loop you can drive by hand, and recorded plan revision.
+Provider-backed architect execution is intentionally deferred to Phase 3. See
+`PHASES.md` and `SESSION.md`.
 
 ## Core commands
 
@@ -23,6 +24,7 @@ draftforge plan --prompt
 draftforge plan --submit <response.json>
 draftforge plan --answer <id>=<text>
 draftforge plan --approve --by <actor>
+draftforge plan --revise --reason <text> --by <actor> [--reopen <id>] [--retire <id>]
 draftforge run
 draftforge resume
 draftforge handoff
@@ -50,7 +52,26 @@ The architect returns one JSON envelope per turn — `{"kind":"questions",…}` 
 off-stage or malformed response is rejected rather than partially applied. Phase 3
 adapters produce the same envelope through the model-runner port. `plan --approve`
 materializes the accepted phases, ADRs, and task files before making active phase
-roots runnable; an approved plan can then change only through a recorded revision.
+roots runnable.
+
+An approved plan then changes only through a recorded revision:
+
+```text
+draftforge plan --revise --reason "Reporting must export CSV" --by sujan
+draftforge plan --prompt                    # the revision restates its questions
+draftforge plan --submit questions-r2.json  # recorded answers carry forward
+draftforge plan --answer Q3="Yes, CSV and text"
+draftforge plan --submit plan-r2.json
+draftforge plan --approve --by sujan
+```
+
+`--revise` records the reason, actor, and predecessor revision, and withdraws
+readiness the superseded plan justified before anything else changes. Approving
+the revision keeps recorded progress: `done` stays `done` unless `--reopen`
+names it, in-flight tasks keep their status, and dropping a started or completed
+task is rejected unless `--retire` names it. Re-materialization rewrites only
+files DraftForge generated; an edited ADR or task contract blocks approval
+instead of being overwritten. A revision is never approved implicitly.
 
 `status` validates canonical state, the discovered configuration, and `SESSION.md`. `doctor`
 reports those project checks alongside local harness and environment availability. Missing

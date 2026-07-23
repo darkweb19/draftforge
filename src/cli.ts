@@ -158,6 +158,24 @@ async function runPlanCommand(args: readonly string[], io: CliIo, cwd: string): 
     return 0;
   }
 
+  if (result.mode === "revise") {
+    io.out(
+      `Started planning revision ${result.record.revision}, superseding ${result.record.previousRevision}.`,
+    );
+    io.out(`Reason: ${result.record.reason}`);
+    if (result.withdrawnTaskIds.length > 0) {
+      io.out(`Withdrew readiness from: ${result.withdrawnTaskIds.join(", ")}.`);
+    }
+    if (result.record.reopenedTasks.length > 0) {
+      io.out(`Reopening: ${result.record.reopenedTasks.join(", ")}.`);
+    }
+    if (result.record.retiredTasks.length > 0) {
+      io.out(`Retiring: ${result.record.retiredTasks.join(", ")}.`);
+    }
+    io.out("Next: `draftforge plan --prompt`. The plan is not approved until you approve it.");
+    return 0;
+  }
+
   io.out(
     `Approved planning revision ${result.artifact.revision}. Ready tasks: ${
       result.readyTaskIds.length === 0 ? "none" : result.readyTaskIds.join(", ")
@@ -173,6 +191,8 @@ const PLAN_USAGE = [
   "       draftforge plan --submit <response.json>",
   "       draftforge plan --answer <id>=<text> [--answer <id>=<text> ...]",
   "       draftforge plan --approve --by <actor>",
+  "       draftforge plan --revise --reason <text> --by <actor>",
+  "                        [--reopen <task-id>] [--retire <task-id>]",
 ].join("\n");
 
 function parsePlanArgs(args: readonly string[]): PlanOptions {
@@ -180,9 +200,12 @@ function parsePlanArgs(args: readonly string[]): PlanOptions {
     return { mode: "start", sourceFile: args[0] };
   }
 
-  let mode: "status" | "prompt" | "submit" | "answer" | "approve" | undefined;
+  let mode: "status" | "prompt" | "submit" | "answer" | "approve" | "revise" | undefined;
   let responseFile: string | undefined;
   let approvedBy: string | undefined;
+  let reason: string | undefined;
+  const reopenTasks: string[] = [];
+  const retireTasks: string[] = [];
   const answers: Record<string, string> = {};
 
   const claimMode = (next: NonNullable<typeof mode>): void => {
@@ -207,6 +230,15 @@ function parsePlanArgs(args: readonly string[]): PlanOptions {
       claimMode("prompt");
     } else if (arg === "--approve") {
       claimMode("approve");
+    } else if (arg === "--revise") {
+      claimMode("revise");
+    } else if (arg === "--reason") {
+      reason = requireValue(arg, args[index + 1]);
+      index += 1;
+    } else if (arg === "--reopen" || arg === "--retire") {
+      const taskId = requireValue(arg, args[index + 1]);
+      (arg === "--reopen" ? reopenTasks : retireTasks).push(taskId);
+      index += 1;
     } else if (arg === "--submit") {
       claimMode("submit");
       responseFile = requireValue(arg, args[index + 1]);
@@ -234,8 +266,14 @@ function parsePlanArgs(args: readonly string[]): PlanOptions {
     }
   }
 
-  if (approvedBy !== undefined && mode !== "approve") {
-    throw new CliUsageError("--by is only valid with --approve.");
+  if (approvedBy !== undefined && mode !== "approve" && mode !== "revise") {
+    throw new CliUsageError("--by is only valid with --approve or --revise.");
+  }
+  if (reason !== undefined && mode !== "revise") {
+    throw new CliUsageError("--reason is only valid with --revise.");
+  }
+  if ((reopenTasks.length > 0 || retireTasks.length > 0) && mode !== "revise") {
+    throw new CliUsageError("--reopen and --retire are only valid with --revise.");
   }
 
   switch (mode) {
@@ -252,6 +290,20 @@ function parsePlanArgs(args: readonly string[]): PlanOptions {
         throw new CliUsageError("Plan approval requires --by <actor>.");
       }
       return { mode: "approve", approvedBy };
+    case "revise":
+      if (reason === undefined || reason.trim().length === 0) {
+        throw new CliUsageError("Plan revision requires --reason <text>.");
+      }
+      if (approvedBy === undefined || approvedBy.trim().length === 0) {
+        throw new CliUsageError("Plan revision requires --by <actor>.");
+      }
+      return {
+        mode: "revise",
+        reason,
+        requestedBy: approvedBy,
+        reopenTasks,
+        retireTasks,
+      };
     default:
       throw new CliUsageError(PLAN_USAGE);
   }
@@ -264,7 +316,12 @@ function printPlanningStatus(result: Extract<PlanResult, { readonly mode: "statu
     (question) => question.blocking && question.answer === null,
   ).length;
 
+  const revision = result.artifact.revisions.at(-1);
+
   io.out(`Planning revision: ${result.artifact.revision}`);
+  if (revision !== undefined && revision.revision === result.artifact.revision) {
+    io.out(`Revised from ${revision.previousRevision} by ${revision.requestedBy}: ${revision.reason}`);
+  }
   io.out(`Source: ${result.artifact.sourceFile}`);
   io.out(`Status: ${result.artifact.status}`);
   io.out(`Questions: ${answered}/${questions.length} answered; ${blocking} blocking unanswered`);
@@ -361,6 +418,11 @@ Commands:
                     Record an interview answer; repeatable
   plan --approve    Approve the current valid plan
                       --by <actor>  Required approval identity
+  plan --revise     Start a recorded revision of the current plan
+                      --reason <text>   Required reason for the revision
+                      --by <actor>      Required requesting identity
+                      --reopen <id>     Reopen a completed task; repeatable
+                      --retire <id>     Retire a started or completed task
   run               Execute ready worker tasks (Phase 4)
   resume            Resume interrupted work (Phase 4)
   handoff           Regenerate SESSION.md from canonical state

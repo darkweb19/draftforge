@@ -6,12 +6,12 @@
     "draftFile": "docs/PRODUCT_SPEC.md"
   },
   "workflow": {
-    "phaseId": "phase-02",
-    "phaseName": "Architecture interview and planning",
+    "phaseId": "phase-03",
+    "phaseName": "Provider and harness adapters",
     "stage": "planning",
     "status": "in_progress",
     "currentTask": null,
-    "nextTask": "P02-T03"
+    "nextTask": null
   },
   "phases": [
     {
@@ -27,12 +27,12 @@
     {
       "id": "phase-02",
       "name": "Architecture interview and planning",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "id": "phase-03",
       "name": "Provider and harness adapters",
-      "status": "not_started"
+      "status": "in_progress"
     },
     {
       "id": "phase-04",
@@ -97,7 +97,7 @@
     {
       "id": "P02-T03",
       "title": "Recorded plan revision flow",
-      "status": "ready",
+      "status": "done",
       "taskFile": ".draftforge/tasks/P02-T03.md",
       "dependsOn": [
         "P02-T02"
@@ -110,12 +110,13 @@
     "docs/decisions/0003-canonical-file-state.md",
     "docs/decisions/0004-delegated-execution-contract.md",
     "docs/decisions/0005-planning-artifact-and-approval-gate.md",
-    "docs/decisions/0006-architect-response-contract.md"
+    "docs/decisions/0006-architect-response-contract.md",
+    "docs/decisions/0007-recorded-plan-revision.md"
   ],
   "handoff": {
-    "updatedAt": "2026-07-23T18:40:00.000Z",
+    "updatedAt": "2026-07-23T21:15:00.000Z",
     "updatedBy": "claude",
-    "summary": "P02-T02 is complete: strict architect response envelope, deterministic architect prompt, model-runner port, boundary parsing, and a provider-neutral CLI loop (plan --prompt, --submit, --answer) that drives the P02-T01 contracts end to end. P02-T03 was split out for the recorded plan revision flow. Typecheck, lint, 57 tests, and build passed.",
+    "summary": "P02-T03 is complete: plan --revise records reason, actor, and predecessor, withdraws superseded readiness, reopens the interview with answers carried forward, and reconciles the revised task graph against recorded progress instead of resetting it. Phase 2 is closed; Phase 3 needs its task contracts defined. Typecheck, lint, 69 tests, session check, and build passed.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
@@ -127,19 +128,22 @@
       "Materialize approved phase, ADR, and task files before making active-phase roots ready.",
       "Accept exactly one architect envelope per turn and derive the expected kind from planning state.",
       "Parse raw model text in src/application/ and validate it before it reaches domain state.",
-      "Drive planning through plan --prompt, --submit, and --answer until Phase 3 adapters exist."
+      "Drive planning through plan --prompt, --submit, and --answer until Phase 3 adapters exist.",
+      "Change an approved plan only through a recorded revision that carries answers forward and preserves recorded progress.",
+      "Retain one superseded plan so re-materialization can tell generated files from user edits."
     ],
     "openQuestions": [],
     "blockers": [],
     "nextActions": [
-      "Implement P02-T03: recorded plan revision with reason, carried-forward answers, and progress reconciliation.",
-      "Keep provider-backed execution deferred until Phase 3 authentication is available."
+      "Define the Phase 3 task contracts for the Codex CLI, Claude Code, OpenAI, and Anthropic adapters behind the existing model-runner port.",
+      "Extend doctor with per-adapter presence and authentication checks that never print secret values."
     ],
     "gotchas": [
       "`templates/schema/*.json` must stay byte-identical to `.draftforge/schema/*.json`; test/templates.test.ts enforces it.",
       "Codex CLI, Claude Code, and provider API keys were not detected in this shell; deterministic Phase 2 work can proceed without them.",
       "Generated `.draftforge/runs/` events are ignored run artifacts and must not be staged.",
-      "Approved plans are still immutable; plan --submit and plan --prompt both refuse an approved revision until P02-T03 lands.",
+      "An approved plan is still immutable in place: plan --submit and plan --prompt refuse it until `plan --revise` starts a recorded revision.",
+      "A revision restates its question batch on purpose, so `plan --prompt` asks for questions before a plan even when nothing new is being asked.",
       "The architect prompt text is asserted in test/architect.test.ts; changing wording means updating those assertions.",
       "If a process crashes during the brief stale-lock recovery claim, verify no DraftForge process is running before removing `.draftforge/state.lock.recovery`.",
       "The workspace is OneDrive-backed, so large file operations can be slower than normal."

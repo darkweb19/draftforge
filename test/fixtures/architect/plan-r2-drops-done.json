@@ -1,0 +1,42 @@
+{
+  "kind": "plan",
+  "plan": {
+    "revision": 2,
+    "assumptions": ["A single local user runs the tracker from a terminal."],
+    "decisions": [
+      {
+        "id": "ADR-001",
+        "title": "Node.js CLI runtime",
+        "adrFile": "docs/decisions/0001-node-cli-runtime.md",
+        "context": "The tracker must run without a server or browser.",
+        "decision": "Ship a Node.js CLI with local JSON persistence.",
+        "consequences": ["Node.js 22 or newer is required to run the tracker."]
+      }
+    ],
+    "phases": [
+      {
+        "id": "phase-01",
+        "name": "Local tracker core",
+        "objective": "Store and list tasks from the command line.",
+        "exitCriteria": ["Tasks survive a restart.", "npm test passes."]
+      }
+    ],
+    "tasks": [
+      {
+        "id": "P01-T02",
+        "title": "Add the add and list commands",
+        "phaseId": "phase-01",
+        "objective": "Expose the store through an in-memory CLI.",
+        "dependsOn": [],
+        "ownedPaths": ["src/commands/"],
+        "requiredContext": [],
+        "relevantAdrs": ["docs/decisions/0001-node-cli-runtime.md"],
+        "acceptanceCriteria": ["add and list round-trip a task."],
+        "verification": ["npm test"],
+        "exclusions": []
+      }
+    ],
+    "risks": [],
+    "verification": ["npm test"]
+  }
+}

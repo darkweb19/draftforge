@@ -10,15 +10,17 @@ import {
   approvePlanningArtifact,
   createPlanningArtifact,
   recordQuestionAnswers,
+  startPlanningRevision,
   type PlanningApprovalResult,
 } from "../application/planning.js";
 import {
   assertPlanningFilesWritable,
   planApprovedFiles,
+  planRevisionFiles,
   writePlanningFiles,
 } from "../application/planning-files.js";
 import type { ArchitectResponseKind } from "../domain/architect.js";
-import type { PlanningArtifact } from "../domain/planning.js";
+import type { PlanningArtifact, PlanningRevisionRecord } from "../domain/planning.js";
 import { readProjectState, writeProjectState, writeSession } from "../state/files.js";
 import {
   readPlanningArtifact,
@@ -35,6 +37,14 @@ export type PlanOptions =
   | {
       readonly mode: "approve";
       readonly approvedBy: string;
+      readonly now?: Date;
+    }
+  | {
+      readonly mode: "revise";
+      readonly reason: string;
+      readonly requestedBy: string;
+      readonly reopenTasks?: readonly string[];
+      readonly retireTasks?: readonly string[];
       readonly now?: Date;
     };
 
@@ -61,6 +71,12 @@ export type PlanResult =
       readonly mode: "approve";
       readonly artifact: PlanningArtifact;
       readonly readyTaskIds: readonly string[];
+    }
+  | {
+      readonly mode: "revise";
+      readonly artifact: PlanningArtifact;
+      readonly record: PlanningRevisionRecord;
+      readonly withdrawnTaskIds: readonly string[];
     };
 
 export async function runPlan(root: string, options: PlanOptions): Promise<PlanResult> {
@@ -122,6 +138,32 @@ export async function runPlan(root: string, options: PlanOptions): Promise<PlanR
     });
   }
 
+  if (options.mode === "revise") {
+    return withProjectLock(projectRoot, "plan revision", async () => {
+      const artifact = await readPlanningArtifact(projectRoot);
+      const state = await readProjectState(projectRoot);
+      const result = startPlanningRevision(artifact, state, {
+        reason: options.reason,
+        requestedBy: options.requestedBy,
+        now: options.now ?? new Date(),
+        ...(options.reopenTasks === undefined ? {} : { reopenTasks: options.reopenTasks }),
+        ...(options.retireTasks === undefined ? {} : { retireTasks: options.retireTasks }),
+      });
+
+      // Withdraw readiness before the new revision can attract a worker.
+      await writeProjectState(projectRoot, result.projectState);
+      await writeSession(projectRoot, result.projectState);
+      await writePlanningArtifact(projectRoot, result.artifact);
+
+      return {
+        mode: "revise",
+        artifact: result.artifact,
+        record: result.record,
+        withdrawnTaskIds: result.withdrawnTaskIds,
+      };
+    });
+  }
+
   return withProjectLock(projectRoot, "plan approval", async () => {
     const artifact = await readPlanningArtifact(projectRoot);
     const state = await readProjectState(projectRoot);
@@ -132,7 +174,12 @@ export async function runPlan(root: string, options: PlanOptions): Promise<PlanR
     if (result.artifact.plan === null) {
       throw new Error("Approved planning state is missing its plan.");
     }
-    const files = planApprovedFiles(result.artifact.plan);
+    const files = planRevisionFiles(
+      planApprovedFiles(result.artifact.plan, result.projectState),
+      result.artifact.supersededPlan === null
+        ? []
+        : planApprovedFiles(result.artifact.supersededPlan),
+    );
     const alreadyMaterialized = result.projectState === state;
     if (!alreadyMaterialized) {
       await assertPlanningFilesWritable(projectRoot, files);
