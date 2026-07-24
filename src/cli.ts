@@ -3,6 +3,7 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runDoctor } from "./commands/doctor.js";
+import { loadProjectConfig } from "./config/config.js";
 import { runInit, type InitOptions } from "./commands/init.js";
 import { runPlan, type PlanOptions, type PlanResult } from "./commands/plan.js";
 import { readProjectState, writeSession } from "./state/files.js";
@@ -41,11 +42,20 @@ export async function main(
       return 0;
 
     case "doctor": {
-      const checks = [...runDoctor(), ...(await inspectProjectHealth(resolve(cwd)))];
-      for (const check of checks) {
-        io.out(`[${check.status.toUpperCase()}] ${check.name}: ${check.detail}`);
+      try {
+        const root = resolve(cwd);
+        const checks = [
+          ...runDoctor(await loadProjectConfig(root)),
+          ...(await inspectProjectHealth(root)),
+        ];
+        for (const check of checks) {
+          io.out(`[${check.status.toUpperCase()}] ${check.name}: ${check.detail}`);
+        }
+        return checks.some((check) => check.status === "fail") ? 1 : 0;
+      } catch (error: unknown) {
+        io.error(toErrorMessage(error));
+        return 1;
       }
-      return checks.some((check) => check.status === "fail") ? 1 : 0;
     }
 
     case "status": {
@@ -135,6 +145,20 @@ async function runPlanCommand(args: readonly string[], io: CliIo, cwd: string): 
     return 0;
   }
 
+  if (result.mode === "run") {
+    io.out(
+      result.applied === "questions"
+        ? `Ran one architect turn and recorded ${result.artifact.questions.items.length} question(s) for revision ${result.artifact.revision}.`
+        : `Ran one architect turn and recorded a draft plan for revision ${result.artifact.revision}.`,
+    );
+    io.out(
+      result.applied === "questions"
+        ? "Next: answer them with `draftforge plan --answer <id>=<text>`."
+        : "Next: `draftforge plan --approve --by <actor>`.",
+    );
+    return 0;
+  }
+
   if (result.mode === "submit") {
     io.out(
       result.applied === "questions"
@@ -188,6 +212,7 @@ const PLAN_USAGE = [
   "Usage: draftforge plan <idea.md>",
   "       draftforge plan --status",
   "       draftforge plan --prompt",
+  "       draftforge plan --run",
   "       draftforge plan --submit <response.json>",
   "       draftforge plan --answer <id>=<text> [--answer <id>=<text> ...]",
   "       draftforge plan --approve --by <actor>",
@@ -200,7 +225,7 @@ function parsePlanArgs(args: readonly string[]): PlanOptions {
     return { mode: "start", sourceFile: args[0] };
   }
 
-  let mode: "status" | "prompt" | "submit" | "answer" | "approve" | "revise" | undefined;
+  let mode: "status" | "prompt" | "run" | "submit" | "answer" | "approve" | "revise" | undefined;
   let responseFile: string | undefined;
   let approvedBy: string | undefined;
   let reason: string | undefined;
@@ -228,6 +253,8 @@ function parsePlanArgs(args: readonly string[]): PlanOptions {
       claimMode("status");
     } else if (arg === "--prompt") {
       claimMode("prompt");
+    } else if (arg === "--run") {
+      claimMode("run");
     } else if (arg === "--approve") {
       claimMode("approve");
     } else if (arg === "--revise") {
@@ -281,6 +308,8 @@ function parsePlanArgs(args: readonly string[]): PlanOptions {
       return { mode: "status" };
     case "prompt":
       return { mode: "prompt" };
+    case "run":
+      return { mode: "run" };
     case "submit":
       return { mode: "submit", responseFile: responseFile as string };
     case "answer":
@@ -412,6 +441,7 @@ Commands:
   plan <idea.md>    Run the architecture interview (Phase 2)
   plan --status     Show resumable planning progress
   plan --prompt     Print the architect prompt for the current planning stage
+  plan --run        Run exactly one architect turn through the configured adapter
   plan --submit <file>
                     Apply a recorded architect response (questions or plan)
   plan --answer <id>=<text>

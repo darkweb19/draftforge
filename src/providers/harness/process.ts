@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import type {
   ChildProcessWithoutNullStreams,
   SpawnOptionsWithoutStdio,
@@ -79,16 +79,32 @@ export type SpawnProcess = (
   options: SpawnOptionsWithoutStdio,
 ) => ChildProcessWithoutNullStreams;
 
+export type CommandResolver = (command: string) => string | undefined;
+export type WindowsCommandLocator = (command: string) => string | undefined;
+
 export interface ProcessTransportOptions {
   readonly spawn?: SpawnProcess;
+  readonly platform?: NodeJS.Platform;
+  readonly resolveCommand?: CommandResolver;
+  readonly commandShell?: string;
+}
+
+export interface ProcessInvocation {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly windowsVerbatimArguments: boolean;
 }
 
 /**
- * Create the real local child-process boundary. No shell is involved and all
- * prompt content is written to stdin rather than exposed in process arguments.
+ * Create the real local child-process boundary. POSIX commands and Windows
+ * executables are spawned directly. Windows command shims require cmd.exe, so
+ * they are resolved first and every argument is escaped before that explicit
+ * invocation. Prompt content remains on stdin.
  */
 export function createProcessTransport(options: ProcessTransportOptions = {}): ProcessTransport {
   const spawnProcess = options.spawn ?? spawn;
+  const platform = options.platform ?? process.platform;
+  const resolveCommand = options.resolveCommand ?? resolveWindowsCommand;
 
   return {
     run(request): Promise<ProcessResult> {
@@ -101,10 +117,16 @@ export function createProcessTransport(options: ProcessTransportOptions = {}): P
       return new Promise<ProcessResult>((resolve, reject) => {
         let child: ChildProcessWithoutNullStreams;
         try {
-          child = spawnProcess(request.command, request.args, {
+          const invocation = prepareProcessInvocation(request.command, request.args, {
+            platform,
+            resolveCommand,
+            ...(options.commandShell === undefined ? {} : { commandShell: options.commandShell }),
+          });
+          child = spawnProcess(invocation.command, invocation.args, {
             shell: false,
             stdio: "pipe",
             windowsHide: true,
+            windowsVerbatimArguments: invocation.windowsVerbatimArguments,
           });
         } catch (error: unknown) {
           reject(toProcessTransportError(request.command, error));
@@ -174,6 +196,79 @@ export function createProcessTransport(options: ProcessTransportOptions = {}): P
       });
     },
   };
+}
+
+export function resolveWindowsCommand(
+  command: string,
+  locate: WindowsCommandLocator = locateWindowsCommands,
+): string | undefined {
+  const output = locate(command);
+  if (output === undefined) {
+    return undefined;
+  }
+  const candidates = output
+    .split(/\r?\n/u)
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => candidate.length > 0);
+  return candidates.find((candidate) => /\.(?:exe|com|cmd|bat)$/iu.test(candidate));
+}
+
+function locateWindowsCommands(command: string): string | undefined {
+  const result = spawnSync("where.exe", [command], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 10_000,
+  });
+  if (result.status !== 0) {
+    return undefined;
+  }
+  return result.stdout;
+}
+
+export function prepareProcessInvocation(
+  command: string,
+  args: readonly string[],
+  options: {
+    readonly platform?: NodeJS.Platform;
+    readonly resolveCommand?: CommandResolver;
+    readonly commandShell?: string;
+  } = {},
+): ProcessInvocation {
+  const platform = options.platform ?? process.platform;
+  if (platform !== "win32") {
+    return { command, args, windowsVerbatimArguments: false };
+  }
+
+  const resolved = (options.resolveCommand ?? resolveWindowsCommand)(command) ?? command;
+  if (!/\.(?:cmd|bat)$/iu.test(resolved)) {
+    return { command: resolved, args, windowsVerbatimArguments: false };
+  }
+
+  const shellCommand = [
+    escapeWindowsCommand(resolved),
+    ...args.map((argument) => escapeWindowsArgument(argument, true)),
+  ].join(" ");
+  return {
+    command: options.commandShell ?? process.env.ComSpec ?? "cmd.exe",
+    args: ["/d", "/s", "/c", `"${shellCommand}"`],
+    windowsVerbatimArguments: true,
+  };
+}
+
+const WINDOWS_META_CHARACTER = /([()[\]%!^"`<>&|;, *?])/gu;
+
+function escapeWindowsCommand(command: string): string {
+  return command.replace(WINDOWS_META_CHARACTER, "^$1");
+}
+
+function escapeWindowsArgument(argument: string, doubleEscapeMetaCharacters: boolean): string {
+  let escaped = argument
+    .replace(/(\\*)"/gu, "$1$1\\\"")
+    .replace(/(\\*)$/u, "$1$1");
+  escaped = `"${escaped}"`.replace(WINDOWS_META_CHARACTER, "^$1");
+  return doubleEscapeMetaCharacters
+    ? escaped.replace(WINDOWS_META_CHARACTER, "^$1")
+    : escaped;
 }
 
 export interface RunHarnessProcessOptions {

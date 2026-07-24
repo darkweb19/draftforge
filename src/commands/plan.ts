@@ -3,9 +3,10 @@ import { isAbsolute, relative, resolve } from "node:path";
 import {
   applyArchitectResponse,
   parseArchitectResponse,
+  runArchitectTurn,
 } from "../application/architect.js";
 import { architectStage, buildArchitectPrompt } from "../application/architect-prompt.js";
-import type { ModelRequest } from "../application/ports.js";
+import type { ModelRequest, ModelRunner } from "../application/ports.js";
 import {
   approvePlanningArtifact,
   createPlanningArtifact,
@@ -21,6 +22,8 @@ import {
 } from "../application/planning-files.js";
 import type { ArchitectResponseKind } from "../domain/architect.js";
 import type { PlanningArtifact, PlanningRevisionRecord } from "../domain/planning.js";
+import { loadProjectConfig } from "../config/config.js";
+import { createModelRunner } from "../providers/runner.js";
 import { readProjectState, writeProjectState, writeSession } from "../state/files.js";
 import {
   readPlanningArtifact,
@@ -32,6 +35,7 @@ export type PlanOptions =
   | { readonly mode: "start"; readonly sourceFile: string }
   | { readonly mode: "status" }
   | { readonly mode: "prompt" }
+  | { readonly mode: "run" }
   | { readonly mode: "submit"; readonly responseFile: string }
   | { readonly mode: "answer"; readonly answers: Readonly<Record<string, string>> }
   | {
@@ -63,6 +67,11 @@ export type PlanResult =
       readonly applied: ArchitectResponseKind;
     }
   | {
+      readonly mode: "run";
+      readonly artifact: PlanningArtifact;
+      readonly applied: ArchitectResponseKind;
+    }
+  | {
       readonly mode: "answer";
       readonly artifact: PlanningArtifact;
       readonly answeredIds: readonly string[];
@@ -79,7 +88,15 @@ export type PlanResult =
       readonly withdrawnTaskIds: readonly string[];
     };
 
-export async function runPlan(root: string, options: PlanOptions): Promise<PlanResult> {
+export interface PlanDependencies {
+  readonly runner?: ModelRunner;
+}
+
+export async function runPlan(
+  root: string,
+  options: PlanOptions,
+  dependencies: PlanDependencies = {},
+): Promise<PlanResult> {
   const projectRoot = resolve(root);
 
   if (options.mode === "start") {
@@ -115,6 +132,27 @@ export async function runPlan(root: string, options: PlanOptions): Promise<PlanR
       sourceText: await readSourceText(projectRoot, artifact.sourceFile),
     });
     return { mode: "prompt", artifact, request, stage: architectStage(artifact) };
+  }
+
+  if (options.mode === "run") {
+    return withProjectLock(projectRoot, "architect turn", async () => {
+      const artifact = await readPlanningArtifact(projectRoot);
+      const state = await readProjectState(projectRoot);
+      const applied = architectStage(artifact);
+      const runner =
+        dependencies.runner ??
+        createModelRunner(await loadProjectConfig(projectRoot));
+      const next = await runArchitectTurn(
+        {
+          artifact,
+          projectName: state.project.name,
+          sourceText: await readSourceText(projectRoot, artifact.sourceFile),
+        },
+        runner,
+      );
+      await writePlanningArtifact(projectRoot, next);
+      return { mode: "run", artifact: next, applied };
+    });
   }
 
   if (options.mode === "submit") {

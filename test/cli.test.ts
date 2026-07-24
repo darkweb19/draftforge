@@ -40,6 +40,13 @@ test("reports plan usage errors with exit code 2", async () => {
   assert.match(capture.errors.join("\n"), /requires --by/);
 });
 
+test("rejects combining the automatic architect turn with the manual prompt path", async () => {
+  const capture = captureIo();
+  const exitCode = await main(["plan", "--run", "--prompt"], capture.io);
+  assert.equal(exitCode, 2);
+  assert.match(capture.errors.join("\n"), /cannot be combined/);
+});
+
 test("initializes and resumes provider-neutral planning state", async () => {
   const dir = await mkdtemp(join(tmpdir(), "draftforge-cli-plan-"));
   try {

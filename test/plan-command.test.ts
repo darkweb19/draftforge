@@ -7,6 +7,7 @@ import {
   createPlanningArtifact,
   submitPlan,
 } from "../src/application/planning.js";
+import type { ModelRequest, ModelRunner } from "../src/application/ports.js";
 import { runInit } from "../src/commands/init.js";
 import { runPlan } from "../src/commands/plan.js";
 import type { PlanningPlan } from "../src/domain/planning.js";
@@ -57,6 +58,47 @@ const plan: PlanningPlan = {
   risks: [],
   verification: ["npm test"],
 };
+
+test("plan run drives exactly one architect turn and records its response", async () => {
+  const root = await mkdtemp(join(tmpdir(), "draftforge-plan-run-"));
+  try {
+    await runInit(root, { name: "Sample" });
+    await runPlan(root, { mode: "start", sourceFile: "idea.md" });
+    const requests: ModelRequest[] = [];
+    const runner: ModelRunner = {
+      async run(request) {
+        requests.push(request);
+        return {
+          text: JSON.stringify({
+            kind: "questions",
+            questions: {
+              revision: 1,
+              items: [
+                {
+                  id: "Q1",
+                  prompt: "Which runtime should the project use?",
+                  blocking: true,
+                  answer: null,
+                },
+              ],
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await runPlan(root, { mode: "run" }, { runner });
+
+    assert.equal(result.mode, "run");
+    assert.equal(result.applied, "questions");
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.role, "architect");
+    assert.equal(result.artifact.questions.items[0]?.id, "Q1");
+    assert.deepEqual(await readPlanningArtifact(root), result.artifact);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("plan command approval publishes consent before runnable state and is retryable", async () => {
   const root = await mkdtemp(join(tmpdir(), "draftforge-plan-command-"));

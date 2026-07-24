@@ -6,12 +6,12 @@
     "draftFile": "docs/PRODUCT_SPEC.md"
   },
   "workflow": {
-    "phaseId": "phase-03",
-    "phaseName": "Provider and harness adapters",
-    "stage": "execution",
+    "phaseId": "phase-04",
+    "phaseName": "Delegated execution",
+    "stage": "planning",
     "status": "in_progress",
     "currentTask": null,
-    "nextTask": "P03-T04"
+    "nextTask": null
   },
   "phases": [
     {
@@ -32,12 +32,12 @@
     {
       "id": "phase-03",
       "name": "Provider and harness adapters",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "id": "phase-04",
       "name": "Delegated execution",
-      "status": "not_started"
+      "status": "in_progress"
     },
     {
       "id": "phase-05",
@@ -133,7 +133,7 @@
     {
       "id": "P03-T04",
       "title": "Doctor authentication checks and plan-command runner wiring",
-      "status": "ready",
+      "status": "done",
       "taskFile": ".draftforge/tasks/P03-T04.md",
       "dependsOn": [
         "P03-T02",
@@ -152,9 +152,9 @@
     "docs/decisions/0008-provider-adapter-contract.md"
   ],
   "handoff": {
-    "updatedAt": "2026-07-24T00:00:00.000Z",
-    "updatedBy": "claude",
-    "summary": "P03-T03 is complete: the OpenAI (Chat Completions) and Anthropic (Messages) API adapters implement the model-adapter port over one injectable fetch transport with environment keys. provider-default resolves to a provider-layer default model, requests carry the routed role/model/reasoning, HTTP 401/403 map to terminal auth errors while 429 and 5xx are retried as transient, and every error is redacted so keys never leak. No vendor SDK was added. Both adapters pass the shared contract suite against an injected fetch; typecheck, lint, 123 tests, session check, and build pass. Live smoke tests skipped: no API keys and no DRAFTFORGE_LIVE_SMOKE opt-in in this shell.",
+    "updatedAt": "2026-07-24T16:40:21.497Z",
+    "updatedBy": "codex",
+    "summary": "P03-T04 is complete and Phase 3 is closed. `doctor` reports availability and authentication for every configured role adapter without exposing environment values or probe output; absent commands, logins, and keys remain informational. `plan --run` drives exactly one architect turn through the configured role-routed runner while the manual prompt/submit path is unchanged. Guarded harness smoke tests were added. Independent review found and repaired Windows npm-shim execution: supported `where.exe` candidates preserve PATH order, `.cmd`/`.bat` shims use escaped `cmd.exe` invocation, and adversarial arguments do not execute. Typecheck, lint, 130 tests, session check, build, real doctor, and a real Windows npm-shim transport check pass; four live provider tests skipped because opt-in/auth were absent.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
@@ -173,17 +173,21 @@
       "Adapters map transport failures to AdapterError with a correct retryable flag; the runner centralizes timeout, retry, and redaction so authentication and contract errors are never retried.",
       "Codex CLI and Claude Code share an injectable shell-free child-process transport; prompts use stdin, provider-default omits the model flag, and explicit models are forwarded.",
       "OpenAI and Anthropic share an injectable fetch transport (no vendor SDK); keys come from the environment only, provider-default resolves to a default model constant in the provider layer, and HTTP 401/403 are terminal while 429 and 5xx are transient.",
-      "The live API smoke tests require both the provider key and DRAFTFORGE_LIVE_SMOKE=1 so a routine npm run check never issues a paid request by surprise."
+      "The live API smoke tests require both the provider key and DRAFTFORGE_LIVE_SMOKE=1 so a routine npm run check never issues a paid request by surprise.",
+      "Drive one provider-backed architect turn with plan --run; keep plan --prompt and plan --submit as unchanged manual checkpoints.",
+      "Doctor checks only configured role adapters, caches duplicate routes, treats absent authentication as missing, and never surfaces environment values or subprocess output.",
+      "On Windows, preserve where.exe PATH order, ignore unsupported extensionless aliases, spawn executables directly, and invoke npm-style .cmd/.bat shims through an escaped cmd.exe boundary while prompts remain on stdin."
     ],
     "openQuestions": [],
     "blockers": [],
     "nextActions": [
-      "Execute P03-T04: add doctor authentication checks (command presence, auth status, missing env vars without exposing values) and wire the plan command to the model runner."
+      "Define the Phase 4 task contracts for dependency-aware scheduling, isolated worker execution, path ownership, evidence capture, concurrency, and resume behavior."
     ],
     "gotchas": [
       "`templates/schema/*.json` must stay byte-identical to `.draftforge/schema/*.json`; test/templates.test.ts enforces it.",
       "The default model IDs live in `src/providers/api/openai-api.ts` and `anthropic-api.ts` (DEFAULT_MODEL); update them there when a provider's default moves — config and domain must not pin a model ID.",
-      "Codex CLI, Claude Code, and provider API keys were not detected in this shell; live smoke tests for P03-T02/T03/T04 must skip rather than fail when their auth mode is unavailable.",
+      "Codex CLI, Claude Code, and provider API keys were not detected in this shell; provider live smoke tests require DRAFTFORGE_LIVE_SMOKE=1 plus the corresponding available authentication and otherwise skip.",
+      "Windows npm-installed harnesses may resolve through .cmd shims; keep process invocation escaping and PATH-order regression tests intact.",
       "Generated `.draftforge/runs/` events are ignored run artifacts and must not be staged.",
       "An approved plan is still immutable in place: plan --submit and plan --prompt refuse it until `plan --revise` starts a recorded revision.",
       "The architect prompt text is asserted in test/architect.test.ts; changing wording means updating those assertions.",

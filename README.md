@@ -14,8 +14,8 @@ reliability (timeout, bounded retry, secret redaction) sit behind the
 model-runner port. Codex CLI and Claude Code are available through local
 subscription-backed authentication, and the OpenAI and Anthropic API transports
 are available through environment-supplied keys. `doctor` authentication checks
-and plan-command wiring are the remaining Phase 3 task. See `PHASES.md` and
-`SESSION.md`.
+and a one-turn, runner-backed planning path are implemented; the Phase 3 exit
+gate remains authoritative in `SESSION.md`.
 
 ## Core commands
 
@@ -26,6 +26,7 @@ draftforge status
 draftforge plan <idea.md>
 draftforge plan --status
 draftforge plan --prompt
+draftforge plan --run
 draftforge plan --submit <response.json>
 draftforge plan --answer <id>=<text>
 draftforge plan --approve --by <actor>
@@ -40,7 +41,8 @@ checkpoint are wired. `run` and `resume` fail clearly until delegated execution
 is implemented.
 
 `plan <idea.md>` initializes or resumes `.draftforge/planning.json` without
-calling a provider. The full planning loop runs today without any adapter:
+calling a provider. The planning loop can be driven manually without any
+adapter:
 
 ```text
 draftforge plan idea.md                     # start or resume a revision
@@ -51,6 +53,11 @@ draftforge plan --prompt
 draftforge plan --submit plan.json          # apply the structured plan
 draftforge plan --approve --by <actor>
 ```
+
+Alternatively, `draftforge plan --run` drives exactly one architect turn
+through the adapter configured for the architect role and records its response.
+Run it once for the question batch, record answers, then run it once for the
+draft plan. The manual `--prompt` and `--submit` checkpoints remain unchanged.
 
 The architect returns one JSON envelope per turn — `{"kind":"questions",…}` or
 `{"kind":"plan",…}` — and the expected kind is derived from planning state, so an
@@ -78,9 +85,12 @@ task is rejected unless `--retire` names it. Re-materialization rewrites only
 files DraftForge generated; an edited ADR or task contract blocks approval
 instead of being overwritten. A revision is never approved implicitly.
 
-`status` validates canonical state, the discovered configuration, and `SESSION.md`. `doctor`
-reports those project checks alongside local harness and environment availability. Missing
-provider credentials are informational in Phase 1; invalid project files return a non-zero exit.
+`status` validates canonical state, the discovered configuration, and `SESSION.md`.
+`doctor` reports those project checks plus availability and authentication for
+each configured role adapter. Missing commands, local logins, and API-key
+variables are reported as `missing` and do not fail the command; invalid
+configuration or an authentication-status probe error returns a non-zero exit.
+Secret values and authentication command output are never printed.
 
 ## Initializing a project
 
@@ -164,6 +174,10 @@ Anthropic API adapters share one injectable `fetch` transport, authenticate with
 environment keys, and map HTTP status onto the same transient/terminal error
 contract. Every adapter passes one reusable contract-test suite against a faked
 boundary, so tests make no real network or process call.
+
+Live provider smoke tests are disabled during routine checks. Set
+`DRAFTFORGE_LIVE_SMOKE=1` to opt in; each test still skips unless its local
+harness is authenticated or its provider key is present.
 
 ## Repository map
 

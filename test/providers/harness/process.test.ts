@@ -7,6 +7,7 @@ import {
   createProcessTransport,
   HarnessAdapterError,
   ProcessTransportError,
+  resolveWindowsCommand,
   runHarnessProcess,
 } from "../../../src/providers/harness/process.js";
 import { createRedactor } from "../../../src/providers/reliability.js";
@@ -49,6 +50,77 @@ test("real process transport is fakeable and captures stdout/stderr without a sh
   assert.equal(result.stdout, "answer");
   assert.equal(result.stderr, "diagnostic");
   assert.equal(result.exitCode, 0);
+});
+
+test("Windows cmd shims use cmd.exe with escaped arguments and no shell expansion", async () => {
+  const child = fakeChild();
+  let spawnCall:
+    | {
+        readonly command: string;
+        readonly args: readonly string[];
+        readonly shell: boolean | string | undefined;
+        readonly windowsVerbatimArguments: boolean | undefined;
+      }
+    | undefined;
+  const transport = createProcessTransport({
+    platform: "win32",
+    commandShell: "C:\\Windows\\System32\\cmd.exe",
+    resolveCommand: () => "C:\\Users\\Sujan AppData\\npm\\codex.cmd",
+    spawn(command, args, options) {
+      spawnCall = {
+        command,
+        args,
+        shell: options.shell,
+        windowsVerbatimArguments: options.windowsVerbatimArguments,
+      };
+      queueMicrotask(() => {
+        (child.stdout as PassThrough).end("answer");
+        (child.stderr as PassThrough).end();
+        child.emit("close", 0, null);
+      });
+      return child;
+    },
+  });
+
+  await transport.run({
+    command: "codex",
+    args: ["--model", "safe & echo PWNED", "quoted\" | calc"],
+    stdin: "private prompt",
+  });
+
+  assert.equal(spawnCall?.command, "C:\\Windows\\System32\\cmd.exe");
+  assert.deepEqual(spawnCall?.args.slice(0, 3), ["/d", "/s", "/c"]);
+  assert.equal(spawnCall?.shell, false);
+  assert.equal(spawnCall?.windowsVerbatimArguments, true);
+  const commandLine = spawnCall?.args[3] ?? "";
+  assert.match(commandLine, /codex\.cmd/u);
+  assert.match(commandLine, /\^\^\^&/u);
+  assert.match(commandLine, /\^\^\^\|/u);
+  assert.doesNotMatch(commandLine, /safe & echo|quoted" \| calc/u);
+});
+
+test("Windows command resolution ignores extensionless aliases before a cmd shim", () => {
+  const resolved = resolveWindowsCommand(
+    "npm",
+    () => [
+      "C:\\Program Files\\nodejs\\npm",
+      "C:\\Program Files\\nodejs\\npm.cmd",
+    ].join("\r\n"),
+  );
+
+  assert.equal(resolved, "C:\\Program Files\\nodejs\\npm.cmd");
+});
+
+test("Windows command resolution preserves locator order across supported extensions", () => {
+  const resolved = resolveWindowsCommand(
+    "tool",
+    () => [
+      "C:\\first-on-path\\tool.cmd",
+      "C:\\later-on-path\\tool.exe",
+    ].join("\r\n"),
+  );
+
+  assert.equal(resolved, "C:\\first-on-path\\tool.cmd");
 });
 
 test("process transport maps a missing executable without spawning a real CLI", async () => {
