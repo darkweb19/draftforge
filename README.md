@@ -9,11 +9,13 @@ The lead model decides and delegates. It does not implement. Lower-cost workers 
 Phase 1 is complete. Phase 2 has provider-independent planning contracts,
 resumable interview state, DAG validation, an explicit approval gate, a
 recorded architect loop you can drive by hand, and recorded plan revision.
-Phase 3 has begun: a role-routed model-runner factory and shared adapter
+Phase 3 is underway: a role-routed model-runner factory and shared adapter
 reliability (timeout, bounded retry, secret redaction) sit behind the
 model-runner port. Codex CLI and Claude Code are available through local
-subscription-backed authentication; the OpenAI and Anthropic API transports
-follow in the remaining Phase 3 tasks. See `PHASES.md` and `SESSION.md`.
+subscription-backed authentication, and the OpenAI and Anthropic API transports
+are available through environment-supplied keys. `doctor` authentication checks
+and plan-command wiring are the remaining Phase 3 task. See `PHASES.md` and
+`SESSION.md`.
 
 ## Core commands
 
@@ -140,6 +142,13 @@ process arguments. Model IDs are configuration, not source-code constants:
 `provider-default` omits the model flag so the local harness chooses its
 default, while an explicit configured model is forwarded.
 
+The API adapters read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` from the
+environment only; keys are never written to project state, logs, or evidence.
+`provider-default` resolves to each provider's current default model inside the
+provider layer, so config and domain never pin a volatile model ID. HTTP 401 and
+403 are terminal authentication errors, while 429 and 5xx are retried as
+transient. No vendor SDK is used — requests go through the runtime `fetch`.
+
 ## Provider layer
 
 Architect, worker, and reviewer roles reach models through one model-runner
@@ -150,8 +159,11 @@ surfaced error. Adapters expose capability discovery as pure data and classify
 failures as transient or terminal; authentication and contract errors are never
 retried. The Codex CLI and Claude Code adapters share one injectable
 child-process transport, use existing local authentication, and report
-capabilities without launching a process or probing the network. OpenAI and
-Anthropic API adapters land in the remaining Phase 3 tasks.
+capabilities without launching a process or probing the network. The OpenAI and
+Anthropic API adapters share one injectable `fetch` transport, authenticate with
+environment keys, and map HTTP status onto the same transient/terminal error
+contract. Every adapter passes one reusable contract-test suite against a faked
+boundary, so tests make no real network or process call.
 
 ## Repository map
 

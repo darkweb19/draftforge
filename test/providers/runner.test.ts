@@ -68,7 +68,7 @@ test("createModelRunner surfaces an adapter error after exhausting retries", asy
   assert.equal(calls, 2);
 });
 
-test("the default adapter registry exposes harness capabilities without spawning a CLI", () => {
+test("the default adapter registry exposes capabilities without I/O", () => {
   assert.deepEqual(resolveAdapter("codex-cli").capabilities, {
     id: "codex-cli",
     transport: "harness",
@@ -81,7 +81,18 @@ test("the default adapter registry exposes harness capabilities without spawning
     authMode: "local-cli",
     roles: ["architect", "worker", "reviewer"],
   });
-  assert.throws(() => resolveAdapter("openai-api"), /not implemented yet; it arrives in P03-T03/);
+  assert.deepEqual(resolveAdapter("openai-api").capabilities, {
+    id: "openai-api",
+    transport: "api",
+    authMode: "api-key",
+    roles: ["architect", "worker", "reviewer"],
+  });
+  assert.deepEqual(resolveAdapter("anthropic-api").capabilities, {
+    id: "anthropic-api",
+    transport: "api",
+    authMode: "api-key",
+    roles: ["architect", "worker", "reviewer"],
+  });
 });
 
 test("roleRoute reports the adapter configured for a role", () => {
