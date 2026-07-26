@@ -413,6 +413,7 @@ function materializeApprovedPlan(
       status,
       taskFile: `.draftforge/tasks/${task.id}.md`,
       dependsOn: task.dependsOn,
+      attempt: reopened.has(task.id) ? null : (previous?.attempt ?? null),
     };
   });
 

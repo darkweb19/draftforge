@@ -1,4 +1,6 @@
-export const PROJECT_STATE_SCHEMA_VERSION = 1 as const;
+import { assertAttemptReference, type AttemptReference } from "./execution.js";
+
+export const PROJECT_STATE_SCHEMA_VERSION = 2 as const;
 
 export type WorkflowStatus = "not_started" | "in_progress" | "blocked" | "complete";
 export type TaskStatus = "backlog" | "ready" | "active" | "blocked" | "review" | "done";
@@ -15,6 +17,8 @@ export interface TaskState {
   readonly status: TaskStatus;
   readonly taskFile: string;
   readonly dependsOn: readonly string[];
+  /** Durable execution identity; null until the scheduler claims the task. */
+  readonly attempt: AttemptReference | null;
 }
 
 export interface ProjectState {
@@ -167,12 +171,18 @@ function assertTasks(value: unknown): ReadonlySet<string> {
     if (!isRecord(task)) {
       throw new Error(`${path} must be an object.`);
     }
-    assertOnlyKeys(task, path, ["id", "title", "status", "taskFile", "dependsOn"]);
+    assertOnlyKeys(task, path, ["id", "title", "status", "taskFile", "dependsOn", "attempt"]);
     assertPattern(task.id, `${path}.id`, TASK_ID_PATTERN);
     assertNonEmptyString(task.title, `${path}.title`);
     assertEnum(task.status, `${path}.status`, TASK_STATUSES);
     assertNonEmptyString(task.taskFile, `${path}.taskFile`);
     assertStringArray(task.dependsOn, `${path}.dependsOn`, true);
+    if (!("attempt" in task)) {
+      throw new Error(`${path}.attempt is required.`);
+    }
+    if (task.attempt !== null) {
+      assertAttemptReference(task.attempt);
+    }
     assertUniqueId(ids, task.id as string, `${path}.id`);
   }
   return ids;

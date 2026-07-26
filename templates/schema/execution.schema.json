@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftforge.local/schema/execution.schema.json",
+  "title": "DraftForge execution attempt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "attemptId", "taskId", "contractHash", "baseCommit", "workspace", "lifecycle", "createdAt", "updatedAt", "budget", "evidence"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "runId": { "$ref": "#/$defs/identifier" },
+    "attemptId": { "$ref": "#/$defs/identifier" },
+    "taskId": { "type": "string", "pattern": "^P[0-9]{2}-T[0-9]{2}$" },
+    "contractHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "baseCommit": { "type": ["string", "null"] },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "lifecycle": { "enum": ["claimed", "running", "review", "blocked"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "budget": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/taskBudget" }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eventLog", "result"],
+      "properties": {
+        "eventLog": { "type": "string", "minLength": 1 },
+        "result": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "taskBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "timeMinutes": { "type": "integer", "minimum": 1 },
+        "tokenLimit": { "type": "integer", "minimum": 1 },
+        "costLimitUsd": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    }
+  }
+}

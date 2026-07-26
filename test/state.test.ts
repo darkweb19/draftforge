@@ -26,6 +26,7 @@ const state: ProjectState = {
       status: "active",
       taskFile: ".draftforge/tasks/P01-T01.md",
       dependsOn: [],
+      attempt: null,
     },
   ],
   decisions: [],

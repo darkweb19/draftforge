@@ -197,12 +197,30 @@ ${renderList(task.verification)}
 
 ## Exclusions
 
-${renderList(task.exclusions)}
+${renderList(task.exclusions)}${task.budget === undefined ? "" : `
+
+## Budget
+
+${renderBudget(task.budget)}`}
 `;
 }
 
 function renderList(items: readonly string[]): string {
   return items.length === 0 ? "- None" : items.map((item) => `- ${item}`).join("\n");
+}
+
+function renderBudget(budget: NonNullable<PlanningTask["budget"]>): string {
+  const values: string[] = [];
+  if (budget.timeMinutes !== undefined) {
+    values.push(`- timeMinutes: ${budget.timeMinutes}`);
+  }
+  if (budget.tokenLimit !== undefined) {
+    values.push(`- tokenLimit: ${budget.tokenLimit}`);
+  }
+  if (budget.costLimitUsd !== undefined) {
+    values.push(`- costLimitUsd: ${budget.costLimitUsd}`);
+  }
+  return values.join("\n");
 }
 
 function safeOutputPath(root: string, projectPath: string): string {

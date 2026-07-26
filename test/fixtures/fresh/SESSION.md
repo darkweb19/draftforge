@@ -6,7 +6,7 @@
 
 - Initialized Fresh fixture with DraftForge. No planning has run yet.
 - Current position: phase-00 — Intake; stage idea; status not_started.
-- Current task: None. Next task: None.
+- Current task: None. Next task: None. Current task is a display pointer; task status and attempt references are authoritative for concurrent work.
 - Completed: None.
 
 ## Decisions locked

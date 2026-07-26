@@ -6,7 +6,7 @@
 
 - Ready to resume.
 - Current position: phase-01 — Local lifecycle; stage implementation; status in_progress.
-- Current task: None. Next task: P01-T02.
+- Current task: None. Next task: P01-T02. Current task is a display pointer; task status and attempt references are authoritative for concurrent work.
 - Completed: P01-T01.
 
 ## Decisions locked

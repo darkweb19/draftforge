@@ -23,7 +23,7 @@
     "lint": "oxlint src test scripts",
     "session:check": "node scripts/session-check.mjs",
     "session:render": "node scripts/session-render.mjs",
-    "test": "node --import tsx --test test/**/*.test.ts",
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

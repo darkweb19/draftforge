@@ -1,5 +1,7 @@
 export const PLANNING_SCHEMA_VERSION = 1 as const;
 
+import { assertTaskBudget, type TaskBudget } from "./execution.js";
+
 export type PlanningStatus = "interview" | "draft" | "approved";
 
 export interface PlanningQuestion {
@@ -42,6 +44,7 @@ export interface PlanningTask {
   readonly acceptanceCriteria: readonly string[];
   readonly verification: readonly string[];
   readonly exclusions: readonly string[];
+  readonly budget?: TaskBudget;
 }
 
 export interface PlanningRisk {
@@ -325,6 +328,7 @@ function assertTasks(
       "acceptanceCriteria",
       "verification",
       "exclusions",
+      "budget",
     ]);
     assertPattern(task.id, `${path}.id`, TASK_ID_PATTERN);
     assertNonEmptyString(task.title, `${path}.title`);
@@ -337,6 +341,9 @@ function assertTasks(
     assertUniqueStringArray(task.acceptanceCriteria, `${path}.acceptanceCriteria`, true);
     assertUniqueStringArray(task.verification, `${path}.verification`, true);
     assertUniqueStringArray(task.exclusions, `${path}.exclusions`);
+    if (task.budget !== undefined) {
+      assertTaskBudget(task.budget);
+    }
     for (const [ownedIndex, ownedPath] of task.ownedPaths.entries()) {
       assertProjectRelativePath(ownedPath, `${path}.ownedPaths[${ownedIndex}]`);
     }

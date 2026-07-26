@@ -1,16 +1,41 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { assertProjectState, type ProjectState } from "../domain/state.js";
+import {
+  PROJECT_STATE_SCHEMA_VERSION,
+  assertProjectState,
+  type ProjectState,
+} from "../domain/state.js";
 
 export const STATE_PATH = ".draftforge/state.json";
 export const SESSION_PATH = "SESSION.md";
 
 export async function readProjectState(root: string): Promise<ProjectState> {
   const raw = await readFile(resolve(root, STATE_PATH), "utf8");
-  const value: unknown = JSON.parse(raw);
+  const value = migrateProjectState(JSON.parse(raw) as unknown);
   assertProjectState(value);
   return value;
+}
+
+/**
+ * State v2 adds a durable nullable attempt reference to every task. Keep this
+ * migration deliberately narrow: it only upgrades the previous shipped shape
+ * and then lets the strict domain validator reject anything else.
+ */
+export function migrateProjectState(value: unknown): unknown {
+  if (!isRecord(value) || value.schemaVersion !== 1) {
+    return value;
+  }
+  if (!Array.isArray(value.tasks)) {
+    return value;
+  }
+  return {
+    ...value,
+    schemaVersion: PROJECT_STATE_SCHEMA_VERSION,
+    tasks: value.tasks.map((task) =>
+      isRecord(task) && task.attempt === undefined ? { ...task, attempt: null } : task,
+    ),
+  };
 }
 
 export function serializeProjectState(state: ProjectState): string {
@@ -49,7 +74,7 @@ export function renderSession(state: ProjectState): string {
 
 - ${state.handoff.summary || "No summary recorded."}
 - Current position: ${state.workflow.phaseId} — ${state.workflow.phaseName}; stage ${state.workflow.stage}; status ${state.workflow.status}.
-- Current task: ${currentTask}. Next task: ${nextTask}.
+- Current task: ${currentTask}. Next task: ${nextTask}. Current task is a display pointer; task status and attempt references are authoritative for concurrent work.
 - Completed: ${completedTasks.length === 0 ? "None" : completedTasks.map((task) => task.id).join(", ")}.
 
 ## Decisions locked
@@ -82,4 +107,8 @@ function renderList(items: readonly string[], emptyText: string): string {
 
 function renderNumberedList(items: readonly string[], emptyText: string): string {
   return items.length === 0 ? emptyText : items.map((item, index) => `${index + 1}. ${item}`).join("\n");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

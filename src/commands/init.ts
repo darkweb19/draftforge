@@ -109,6 +109,10 @@ async function planFiles(projectName: string, state: ProjectState): Promise<read
       path: ".draftforge/schema/planning.schema.json",
       contents: await readTemplate("schema/planning.schema.json"),
     },
+    {
+      path: ".draftforge/schema/execution.schema.json",
+      contents: await readTemplate("schema/execution.schema.json"),
+    },
     { path: ".draftforge/tasks/.gitkeep", contents: "" },
     { path: ".draftforge/runs/.gitkeep", contents: "" },
     { path: "SESSION.md", contents: renderSession(state) },
