@@ -20,7 +20,7 @@ function config(): ProjectConfig {
 }
 
 function caps(id: AdapterId): AdapterCapabilities {
-  return { id, transport: "api", authMode: "api-key", roles: ["architect", "worker", "reviewer"] };
+  return { id, transport: "api", authMode: "api-key", roles: ["architect", "worker", "reviewer"], workspaceAccess: false };
 }
 
 test("createModelRunner routes each role to its configured adapter, model, and level", async () => {
@@ -68,30 +68,100 @@ test("createModelRunner surfaces an adapter error after exhausting retries", asy
   assert.equal(calls, 2);
 });
 
+test("side-effecting workspace requests force one attempt and honor the per-request timeout", async () => {
+  let calls = 0;
+  const resolveAdapter = (id: AdapterId): ModelAdapter => ({
+    capabilities: { ...caps(id), transport: "harness", authMode: "local-cli", workspaceAccess: true },
+    async run(request) {
+      calls += 1;
+      request.onProcessStart?.({ processId: 9001 });
+      await new Promise<void>((_resolve, reject) => {
+        request.signal?.addEventListener("abort", () => reject(new AdapterError("aborted", true)), {
+          once: true,
+        });
+      });
+      return { text: "unreachable" };
+    },
+  });
+  const runner = createModelRunner(config(), {
+    resolveAdapter,
+    env: {},
+    reliability: { attempts: 5, sleep: immediateSleep, timeoutMs: 10_000 },
+  });
+
+  await assert.rejects(
+    runner.run({
+      role: "worker",
+      system: "s",
+      user: "u",
+      workingDirectory: "/isolated/worktree",
+      retryPolicy: "standard",
+      timeoutMs: 5,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AdapterError);
+      assert.equal(error.timedOut, true);
+      assert.equal(error.processId, 9001);
+      assert.equal(error.definitelyTerminated, false);
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
+});
+
+test("text-only workspace requests fail before the adapter receives a call", async () => {
+  let calls = 0;
+  const resolveAdapter = (id: AdapterId): ModelAdapter => ({
+    capabilities: caps(id),
+    async run() {
+      calls += 1;
+      return { text: "unexpected" };
+    },
+  });
+  const runner = createModelRunner(config(), { resolveAdapter, env: {} });
+
+  assert.deepEqual(runner.capabilities?.("worker"), { workspaceAccess: false });
+  await assert.rejects(
+    runner.run({
+      role: "worker",
+      system: "s",
+      user: "u",
+      workingDirectory: "/isolated/worktree",
+      retryPolicy: "none",
+    }),
+    /text-only/u,
+  );
+  assert.equal(calls, 0);
+});
+
 test("the default adapter registry exposes capabilities without I/O", () => {
   assert.deepEqual(resolveAdapter("codex-cli").capabilities, {
     id: "codex-cli",
     transport: "harness",
     authMode: "local-cli",
     roles: ["architect", "worker", "reviewer"],
+    workspaceAccess: true,
   });
   assert.deepEqual(resolveAdapter("claude-cli").capabilities, {
     id: "claude-cli",
     transport: "harness",
     authMode: "local-cli",
     roles: ["architect", "worker", "reviewer"],
+    workspaceAccess: true,
   });
   assert.deepEqual(resolveAdapter("openai-api").capabilities, {
     id: "openai-api",
     transport: "api",
     authMode: "api-key",
     roles: ["architect", "worker", "reviewer"],
+    workspaceAccess: false,
   });
   assert.deepEqual(resolveAdapter("anthropic-api").capabilities, {
     id: "anthropic-api",
     transport: "api",
     authMode: "api-key",
     roles: ["architect", "worker", "reviewer"],
+    workspaceAccess: false,
   });
 });
 

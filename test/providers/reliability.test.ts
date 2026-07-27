@@ -31,16 +31,21 @@ test("redact removes API keys, bearer tokens, header keys, and literal secrets",
   assert.match(out, /\[REDACTED\]/);
 });
 
-test("createRedactor ignores short strings that are not real secrets", () => {
+test("createRedactor redacts configured literals regardless of length", () => {
   const redactor = createRedactor(["short", "aproperlengthsecret"]);
   const out = redactor("short aproperlengthsecret");
-  assert.ok(out.includes("short"));
+  assert.ok(!out.includes("short"));
   assert.ok(!out.includes("aproperlengthsecret"));
 });
 
 test("secretsFromEnv returns only present secret-bearing values", () => {
-  const values = secretsFromEnv({ OPENAI_API_KEY: "sk-openai-value-123456", NODE_ENV: "test" });
-  assert.deepEqual(values, ["sk-openai-value-123456"]);
+  const values = secretsFromEnv({
+    OPENAI_API_KEY: "sk-openai-value-123456",
+    SHORT_SECRET: "xy",
+    EMPTY_TOKEN: "",
+    NODE_ENV: "test",
+  });
+  assert.deepEqual(values, ["sk-openai-value-123456", "xy"]);
 });
 
 test("withTimeout rejects a retryable AdapterError when the operation is too slow", async () => {
@@ -49,6 +54,7 @@ test("withTimeout rejects a retryable AdapterError when the operation is too slo
     (error: unknown) => {
       assert.ok(error instanceof AdapterError);
       assert.equal(error.retryable, true);
+      assert.equal(error.timedOut, true);
       assert.match(error.message, /timed out/);
       return true;
     },

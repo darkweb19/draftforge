@@ -23,6 +23,9 @@ export class FakeProcessTransport implements ProcessTransport {
     if (outcome instanceof Error) {
       throw outcome;
     }
+    if (outcome.processId !== undefined) {
+      request.onStart?.({ processId: outcome.processId });
+    }
     return outcome;
   }
 }
@@ -33,6 +36,8 @@ export function processResult(
     readonly stderr?: string;
     readonly exitCode?: number | null;
     readonly signal?: NodeJS.Signals | null;
+    readonly processId?: number;
+    readonly definitelyTerminated?: boolean;
   } = {},
 ): ProcessResult {
   return {
@@ -40,5 +45,7 @@ export function processResult(
     stderr: options.stderr ?? "",
     exitCode: options.exitCode ?? 0,
     signal: options.signal ?? null,
+    processId: options.processId,
+    definitelyTerminated: options.definitelyTerminated ?? true,
   };
 }

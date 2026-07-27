@@ -35,6 +35,7 @@ test("Anthropic API adapter satisfies the shared adapter contract", async (t) =>
       transport: "api",
       authMode: "api-key",
       roles: ["architect", "worker", "reviewer"],
+      workspaceAccess: false,
     },
     success: createAnthropicApiAdapter({ fetch: success.fetch, env: ENV }),
     transientFailure: createAnthropicApiAdapter({ fetch: transient.fetch, env: ENV, redactor }),
@@ -87,6 +88,16 @@ test("Anthropic adapter fails terminally when the key is unset and never calls f
     assert.equal(error.kind, "missing-key");
     return true;
   });
+  assert.equal(fake.requests.length, 0);
+});
+
+test("Anthropic adapter defensively rejects local workspace access before key or fetch", async () => {
+  const fake = new FakeFetch();
+  const adapter = createAnthropicApiAdapter({ fetch: fake.fetch, env: {} as NodeJS.ProcessEnv });
+  await assert.rejects(
+    adapter.run({ ...SAMPLE_ADAPTER_REQUEST, workingDirectory: "/isolated/worktree" }),
+    /text-only/u,
+  );
   assert.equal(fake.requests.length, 0);
 });
 

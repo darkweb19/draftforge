@@ -258,6 +258,7 @@ export function isReservedWorkerPath(
   return (
     normalized === (caseSensitive ? "SESSION.md" : "session.md") ||
     normalized === ".draftforge/state.json" ||
+    normalized === ".draftforge/config.local.json" ||
     normalized === ".draftforge" ||
     normalized === ".draftforge/runs" ||
     normalized.startsWith(".draftforge/runs/")

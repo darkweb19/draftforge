@@ -31,6 +31,11 @@ export async function assertAdapterContract(t: TestContext, spec: AdapterContrac
     assert.ok(spec.expected.roles.length > 0, "an adapter must support at least one role");
     assert.ok(["harness", "api"].includes(spec.expected.transport));
     assert.ok(["local-cli", "api-key"].includes(spec.expected.authMode));
+    assert.equal(
+      spec.expected.workspaceAccess,
+      spec.expected.transport === "harness",
+      "only local harness transports may claim workspace access",
+    );
   });
 
   await t.test("returns non-empty response text on success", async () => {

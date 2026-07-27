@@ -10,7 +10,11 @@ import {
   type ExecutionAttemptManifest,
   type TaskBudget,
 } from "../domain/execution.js";
-import { redactForLog } from "./events.js";
+import {
+  configuredSecretsFromEnv,
+  redactConfiguredSecrets,
+  redactForLog,
+} from "./events.js";
 import { writeFileAtomic } from "./files.js";
 
 const RUNS_DIRECTORY = ".draftforge/runs";
@@ -148,7 +152,7 @@ export async function writeAttemptResult(
 ): Promise<ExecutionAttemptManifest> {
   const manifest = await readExecutionAttemptManifest(root, reference);
   const resultPath = attemptResultPath(reference);
-  const contents = `${JSON.stringify(redactForLog(redactConfiguredSecrets(result, configuredSecrets(env))), null, 2)}\n`;
+  const contents = `${JSON.stringify(redactForLog(redactConfiguredSecrets(result, configuredSecretsFromEnv(env))), null, 2)}\n`;
   const outputPath = resolveUnderRoot(root, resultPath);
   try {
     const previous = await readFile(outputPath, "utf8");
@@ -182,7 +186,7 @@ export async function appendAttemptEvent(
   }
   const manifest = await readExecutionAttemptManifest(root, reference);
   const path = resolveUnderRoot(root, manifest.evidence.eventLog);
-  const redacted = redactForLog(redactConfiguredSecrets(event, configuredSecrets(env)));
+  const redacted = redactForLog(redactConfiguredSecrets(event, configuredSecretsFromEnv(env)));
   const contents = `${JSON.stringify(redacted)}\n`;
   let previous = "";
   try {
@@ -203,40 +207,6 @@ export async function appendAttemptEvent(
   if (!found) {
     await writeFileAtomic(path, `${previous}${contents}`);
   }
-}
-
-function configuredSecrets(env: NodeJS.ProcessEnv): readonly string[] {
-  return Object.entries(env)
-    .filter(([key, value]) => /(?:api.?key|authorization|credential|password|secret|token)/i.test(key) && typeof value === "string")
-    .map(([, value]) => value as string)
-    .filter((value) => value.length >= 8);
-}
-
-function redactConfiguredSecrets(value: unknown, secrets: readonly string[]): unknown {
-  return redactConfiguredValue(value, secrets, new WeakSet<object>());
-}
-
-function redactConfiguredValue(
-  value: unknown,
-  secrets: readonly string[],
-  seen: WeakSet<object>,
-): unknown {
-  if (typeof value === "string") {
-    return secrets.reduce((redacted, secret) => redacted.replaceAll(secret, "[REDACTED]"), value);
-  }
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-  if (seen.has(value)) {
-    return "[REDACTED:CIRCULAR]";
-  }
-  seen.add(value);
-  if (Array.isArray(value)) {
-    return value.map((item) => redactConfiguredValue(item, secrets, seen));
-  }
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, redactConfiguredValue(item, secrets, seen)]),
-  );
 }
 
 function resolveUnderRoot(root: string, projectPath: string): string {

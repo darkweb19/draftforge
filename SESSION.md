@@ -4,10 +4,10 @@
 
 ## What was done
 
-- P04-T01 and P04-T02 are complete after parallel bounded implementation and an independent QA gate. DraftForge now parses strict task contracts, migrates canonical state to durable nullable attempt references, selects dependency-ready path-compatible work under concurrency limits, persists schema-valid redacted attempt evidence, and creates or safely recovers deterministic Git worktrees whose changed paths come from Git. QA found and repaired Windows reserved-path case handling, foreign nested-repository reuse, and incomplete test discovery. Typecheck, lint, all 151 tests, session check, and build pass; four opt-in live provider smokes skip. P04-T03 is ready.
+- P04-T03 is complete after bounded implementation, adversarial repair, and independent QA acceptance. DraftForge now preflights workspace-capable worker routes before claim, builds boundary-checked least-context prompts, invokes local harnesses once in deterministic worktrees, validates strict result envelopes, persists redacted evidence before transition, and advances workers only to review or blocked. Authoritative Git inspection now distrusts mutable index, exclusion, history, filter, hook, stat, line-ending, and worktree controls; tracked submodules fail closed, while uncertain process termination preserves the active attempt for explicit resume. Typecheck, lint, all 211 tests (206 pass, 5 expected skips), session check, and build pass. P04-T04 is ready.
 - Current position: phase-04 — Delegated execution; stage execution; status in_progress.
-- Current task: None. Next task: P04-T03.
-- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01, P03-T02, P03-T03, P03-T04, P04-T01, P04-T02.
+- Current task: None. Next task: P04-T04.
+- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01, P03-T02, P03-T03, P03-T04, P04-T01, P04-T02, P04-T03.
 
 ## Decisions locked
 
@@ -39,6 +39,7 @@
 - Phase 4 workspace mutation is available only through workspace-capable local harness adapters; text-only API worker routes fail before claim until a separate patch/tool protocol is designed.
 - Worker success advances only to review. Independent acceptance, repairs, merges, rollback, secret scanning, and usage accounting remain Phase 5.
 - Decompose Phase 4 by concern: execution contracts and scheduling (P04-T01) plus Git workspace isolation (P04-T02) can proceed in parallel; worker execution/evidence (P04-T03) joins them; run/resume and the exit gate finish in P04-T04.
+- Treat every worker-mutable Git control surface as untrusted during inspection: use fixed safe command overrides, reject executable filters and tracked submodules, and preserve any workspace whose authoritative scope cannot be proven.
 
 ## Open questions
 
@@ -46,8 +47,8 @@ None
 
 ## Next steps
 
-1. Execute P04-T03 through a bounded code-builder: integrate the worker prompt, workspace-capable harness execution, strict result parsing, real Git diff scope enforcement, and durable evidence.
-2. After independent review accepts P04-T03, finish Phase 4 with P04-T04 and its deterministic concurrent run/resume gate.
+1. Execute P04-T04 through a bounded code-builder: wire concurrent run/resume orchestration, reconcile durable crash points, and expose actionable CLI outcomes.
+2. Run the deterministic Phase 4 sample gate through the built CLI, then update canonical state and SESSION.md only after independent QA accepts the implementation.
 
 ## Gotchas
 
@@ -61,9 +62,11 @@ None
 - Codex CLI, Claude Code, and provider API keys were not detected in this shell; provider live smoke tests require DRAFTFORGE_LIVE_SMOKE=1 plus the corresponding available authentication and otherwise skip.
 - Windows npm-installed harnesses may resolve through .cmd shims; keep process invocation escaping and PATH-order regression tests intact.
 - Generated `.draftforge/runs/` events are ignored run artifacts and must not be staged.
+- Worker Git inspection fails closed for executable clean/process filters, mutable fsmonitor or hook configuration, unsafe index/history/exclusion controls, tracked submodules, and local/worktree line-ending normalization overrides; P04-T04 CLI documentation must surface these limitations actionably.
+- A timeout whose child or descendants are not definitely terminated records the PID but leaves the task active and skips workspace inspection; resume must prove process absence before reuse.
 - An approved plan is still immutable in place: plan --submit and plan --prompt refuse it until `plan --revise` starts a recorded revision.
 - The architect prompt text is asserted in test/architect.test.ts; changing wording means updating those assertions.
 - If a process crashes during the brief stale-lock recovery claim, verify no DraftForge process is running before removing `.draftforge/state.lock.recovery`.
 - The workspace is OneDrive-backed, so large file operations can be slower than normal.
 
-Last updated: 2026-07-26T14:59:05.000Z by codex
+Last updated: 2026-07-26T20:02:43.000-04:00 by codex

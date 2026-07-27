@@ -69,6 +69,7 @@ test("rejects contract/state disagreement, missing sections, and reserved or glo
   assert.throws(() => parseTaskContract(contract.replace("- P03-T04", "- P03-T03"), task), /dependencies.*canonical state/);
   assert.throws(() => parseTaskContract(contract.replace("## Verification\n\n- npm test\n\n", ""), task), /missing required section: Verification/);
   assert.throws(() => parseTaskContract(contract.replace("src/application/scheduler.ts", ".draftforge/state.json"), task), /reserved to the scheduler/);
+  assert.throws(() => parseTaskContract(contract.replace("src/application/scheduler.ts", ".draftforge/config.local.json"), task), /reserved to the scheduler/);
   assert.throws(() => parseTaskContract(contract.replace("src/application/scheduler.ts", "src/**/*.ts"), task), /non-glob path/);
 });
 

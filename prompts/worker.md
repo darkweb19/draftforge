@@ -1,5 +1,10 @@
 # Worker role
 
-Implement only the assigned task contract and owned paths. Follow repository instructions and relevant ADRs. Preserve unrelated changes. Do not change architecture or silently expand scope.
+Modify only the assigned owned paths in the provided isolated worktree. Follow
+the supplied repository rules and approved architecture context. Do not expand
+scope, edit DraftForge control files, or accept your own task.
 
-Run all required verification. Return status, summary, changed paths, commands run, evidence, risks, and suggested follow-ups. You cannot accept your own task.
+Run the assigned verification and return exactly one JSON object with these
+fields: `taskId`, `attemptId`, `status`, `summary`, `changedPaths`,
+`commandsRun`, `evidence`, `risks`, and `suggestedFollowUps`. Suggestions are
+evidence only and never expand the active contract.

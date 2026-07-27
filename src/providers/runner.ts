@@ -31,25 +31,54 @@ export function createModelRunner(config: ProjectConfig, options: RunnerOptions 
   const timeoutMs = reliability.timeoutMs ?? config.limits.taskTimeoutMinutes * MILLISECONDS_PER_MINUTE;
 
   return {
+    capabilities(role) {
+      const route = config.roles[role];
+      return { workspaceAccess: resolve(route.adapter).capabilities.workspaceAccess };
+    },
     async run(request: ModelRequest): Promise<ModelResponse> {
       const route = config.roles[request.role];
       const adapter = resolve(route.adapter);
+      const requestTimeoutMs = request.timeoutMs ?? timeoutMs;
+      if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1) {
+        throw new Error("Model request timeoutMs must be a positive safe integer.");
+      }
+      if (request.workingDirectory !== undefined && !adapter.capabilities.workspaceAccess) {
+        throw new Error(
+          `Configured ${request.role} adapter "${route.adapter}" is text-only and cannot execute in a local workspace. Select codex-cli or claude-cli.`,
+        );
+      }
+      let processId: number | undefined;
       return withReliability(
-        (signal) =>
-          adapter.run({
+        (signal) => {
+          processId = undefined;
+          return adapter.run({
             role: request.role,
             model: route.model,
             reasoning: route.reasoning,
             system: request.system,
             user: request.user,
+            ...(request.workingDirectory === undefined ? {} : { workingDirectory: request.workingDirectory }),
+            onProcessStart(process) {
+              processId = process.processId;
+              request.onProcessStart?.(process);
+            },
             signal,
-          }),
+          });
+        },
         {
-          timeoutMs,
+          timeoutMs: requestTimeoutMs,
           redactor,
-          ...(reliability.attempts === undefined ? {} : { attempts: reliability.attempts }),
+          ...(request.workingDirectory !== undefined || request.retryPolicy === "none"
+            ? { attempts: 1 }
+            : reliability.attempts === undefined
+              ? {}
+              : { attempts: reliability.attempts }),
           ...(reliability.delayMs === undefined ? {} : { delayMs: reliability.delayMs }),
           ...(reliability.sleep === undefined ? {} : { sleep: reliability.sleep }),
+          processMetadata: () => ({
+            processId,
+            definitelyTerminated: processId === undefined,
+          }),
         },
       );
     },

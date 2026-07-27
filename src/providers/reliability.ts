@@ -6,25 +6,32 @@
  */
 export class AdapterError extends Error {
   readonly retryable: boolean;
+  readonly timedOut: boolean;
+  readonly processId: number | undefined;
+  readonly definitelyTerminated: boolean | undefined;
 
-  constructor(message: string, retryable: boolean, options?: { readonly cause?: unknown }) {
+  constructor(
+    message: string,
+    retryable: boolean,
+    options: {
+      readonly cause?: unknown;
+      readonly timedOut?: boolean;
+      readonly processId?: number;
+      readonly definitelyTerminated?: boolean;
+    } = {},
+  ) {
     super(message, options);
     this.name = "AdapterError";
     this.retryable = retryable;
+    this.timedOut = options.timedOut ?? false;
+    this.processId = options.processId;
+    this.definitelyTerminated = options.definitelyTerminated;
   }
 }
 
 export const DEFAULT_MAX_ATTEMPTS = 3;
 export const DEFAULT_RETRY_DELAY_MS = 200;
-const MIN_SECRET_LENGTH = 8;
-
-/** Environment variables whose values must never reach a log, error, or event. */
-const SECRET_ENV_VARS: readonly string[] = [
-  "OPENAI_API_KEY",
-  "OPENAI_ORG_ID",
-  "ANTHROPIC_API_KEY",
-  "ANTHROPIC_AUTH_TOKEN",
-];
+const SECRET_ENV_NAME = /(?:api.?key|authorization|credential|password|secret|token)/iu;
 
 const REDACTIONS: ReadonlyArray<{ readonly pattern: RegExp; readonly replacement: string }> = [
   { pattern: /sk-ant-[A-Za-z0-9_-]{8,}/g, replacement: "[REDACTED]" },
@@ -37,7 +44,7 @@ const REDACTIONS: ReadonlyArray<{ readonly pattern: RegExp; readonly replacement
 export function redact(text: string, secrets: readonly string[] = []): string {
   let result = text;
   for (const secret of secrets) {
-    if (secret.length >= MIN_SECRET_LENGTH) {
+    if (secret.length > 0) {
       result = result.split(secret).join("[REDACTED]");
     }
   }
@@ -48,19 +55,15 @@ export function redact(text: string, secrets: readonly string[] = []): string {
 }
 
 export function createRedactor(secrets: readonly string[] = []): (text: string) => string {
-  const literals = [...new Set(secrets)].filter((secret) => secret.length >= MIN_SECRET_LENGTH);
+  const literals = [...new Set(secrets)].filter((secret) => secret.length > 0);
   return (text) => redact(text, literals);
 }
 
 export function secretsFromEnv(env: NodeJS.ProcessEnv = process.env): readonly string[] {
-  const values: string[] = [];
-  for (const name of SECRET_ENV_VARS) {
-    const value = env[name];
-    if (typeof value === "string" && value.length >= MIN_SECRET_LENGTH) {
-      values.push(value);
-    }
-  }
-  return values;
+  return Object.entries(env)
+    .filter(([name, value]) => SECRET_ENV_NAME.test(name) && typeof value === "string")
+    .map(([, value]) => value as string)
+    .filter((value) => value.length > 0);
 }
 
 export interface ReliabilityOptions {
@@ -69,18 +72,28 @@ export interface ReliabilityOptions {
   readonly delayMs?: number;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly redactor?: (text: string) => string;
+  readonly processMetadata?: () => {
+    readonly processId: number | undefined;
+    readonly definitelyTerminated: boolean;
+  };
 }
 
 /** Reject with a retryable timeout error, aborting the operation's signal. */
 export function withTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
+  processMetadata?: ReliabilityOptions["processMetadata"],
 ): Promise<T> {
   const controller = new AbortController();
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       controller.abort();
-      reject(new AdapterError(`Adapter call timed out after ${timeoutMs}ms.`, true));
+      const process = processMetadata?.();
+      reject(new AdapterError(`Adapter call timed out after ${timeoutMs}ms.`, true, {
+        timedOut: true,
+        ...(process?.processId === undefined ? {} : { processId: process.processId }),
+        definitelyTerminated: process?.definitelyTerminated ?? true,
+      }));
     }, timeoutMs);
 
     operation(controller.signal).then(
@@ -107,7 +120,7 @@ export async function withReliability<T>(
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await withTimeout(operation, options.timeoutMs);
+      return await withTimeout(operation, options.timeoutMs, options.processMetadata);
     } catch (error: unknown) {
       lastError = error;
       if (!isRetryable(error) || attempt === attempts) {
@@ -137,7 +150,14 @@ function redactError(error: unknown, redactor?: (text: string) => string): Error
   }
   const message = redactor(base.message);
   if (base instanceof AdapterError) {
-    return new AdapterError(message, base.retryable, { cause: base.cause });
+    return new AdapterError(message, base.retryable, {
+      cause: base.cause,
+      timedOut: base.timedOut,
+      ...(base.processId === undefined ? {} : { processId: base.processId }),
+      ...(base.definitelyTerminated === undefined
+        ? {}
+        : { definitelyTerminated: base.definitelyTerminated }),
+    });
   }
   const redacted = new Error(message);
   redacted.name = base.name;

@@ -10,6 +10,7 @@ const CAPS: AdapterCapabilities = {
   transport: "api",
   authMode: "api-key",
   roles: ["architect", "worker", "reviewer"],
+  workspaceAccess: false,
 };
 const redactor = createRedactor([SECRET]);
 

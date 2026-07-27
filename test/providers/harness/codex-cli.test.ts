@@ -32,6 +32,7 @@ test("Codex CLI adapter satisfies the shared adapter contract", async (t) => {
       transport: "harness",
       authMode: "local-cli",
       roles: ["architect", "worker", "reviewer"],
+      workspaceAccess: true,
     },
     success: createCodexCliAdapter({ transport: successTransport }),
     transientFailure: createCodexCliAdapter({
@@ -53,19 +54,26 @@ test("Codex CLI adapter satisfies the shared adapter contract", async (t) => {
   assert.ok(invocation?.stdin.includes(SAMPLE_ADAPTER_REQUEST.user));
 });
 
-test("Codex CLI forwards an explicit model and keeps the prompt on stdin", async () => {
-  const transport = new FakeProcessTransport(processResult("ok"));
+test("Codex CLI forwards model, cwd, and process-start identity while keeping the prompt on stdin", async () => {
+  const transport = new FakeProcessTransport(processResult("ok", { processId: 4421 }));
   const adapter = createCodexCliAdapter({ transport });
   const secretPrompt = "prompt-only-secret-67890";
+  let processId: number | undefined;
 
   await adapter.run({
     ...SAMPLE_ADAPTER_REQUEST,
     model: "gpt-explicit",
     user: secretPrompt,
+    workingDirectory: "/isolated/codex-worktree",
+    onProcessStart(process) {
+      processId = process.processId;
+    },
   });
 
   const invocation = transport.requests[0];
   assert.deepEqual(invocation?.args, ["exec", "--model", "gpt-explicit", "-"]);
   assert.ok(invocation?.stdin.includes(secretPrompt));
   assert.ok(!invocation?.args.some((argument) => argument.includes(secretPrompt)));
+  assert.equal(invocation?.cwd, "/isolated/codex-worktree");
+  assert.equal(processId, 4421);
 });

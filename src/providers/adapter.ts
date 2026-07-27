@@ -1,5 +1,5 @@
 import type { AdapterId, ReasoningLevel } from "../config/config.js";
-import type { ModelResponse, ModelRole } from "../application/ports.js";
+import type { ModelProcessStart, ModelResponse, ModelRole } from "../application/ports.js";
 
 /**
  * The provider adapter contract. Every harness or API implementation lives in
@@ -15,6 +15,8 @@ export interface AdapterCapabilities {
   readonly transport: AdapterTransport;
   readonly authMode: AdapterAuthMode;
   readonly roles: readonly ModelRole[];
+  /** True only for local harnesses that honor `workingDirectory`. */
+  readonly workspaceAccess: boolean;
 }
 
 /** A single invocation already routed to a concrete adapter, model, and level. */
@@ -24,6 +26,8 @@ export interface AdapterRequest {
   readonly reasoning: ReasoningLevel;
   readonly system: string;
   readonly user: string;
+  readonly workingDirectory?: string;
+  readonly onProcessStart?: (process: ModelProcessStart) => void;
   /** Aborted when the shared reliability wrapper's per-call timeout fires. */
   readonly signal?: AbortSignal;
 }

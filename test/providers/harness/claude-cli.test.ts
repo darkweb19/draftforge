@@ -32,6 +32,7 @@ test("Claude Code adapter satisfies the shared adapter contract", async (t) => {
       transport: "harness",
       authMode: "local-cli",
       roles: ["architect", "worker", "reviewer"],
+      workspaceAccess: true,
     },
     success: createClaudeCliAdapter({ transport: successTransport }),
     transientFailure: createClaudeCliAdapter({

@@ -3,13 +3,16 @@ import type {
   ChildProcessWithoutNullStreams,
   SpawnOptionsWithoutStdio,
 } from "node:child_process";
+import type { ModelProcessStart } from "../../application/ports.js";
 import { AdapterError, redact } from "../reliability.js";
 
 export interface ProcessRequest {
   readonly command: string;
   readonly args: readonly string[];
   readonly stdin: string;
+  readonly cwd?: string;
   readonly signal?: AbortSignal;
+  readonly onStart?: (process: ModelProcessStart) => void;
 }
 
 export interface ProcessResult {
@@ -17,6 +20,8 @@ export interface ProcessResult {
   readonly stderr: string;
   readonly exitCode: number | null;
   readonly signal: NodeJS.Signals | null;
+  readonly processId: number | undefined;
+  readonly definitelyTerminated: boolean;
 }
 
 /** Injectable boundary used by harness adapters; tests provide an in-memory fake. */
@@ -29,16 +34,25 @@ export type ProcessTransportErrorKind = "missing-command" | "aborted" | "spawn";
 export class ProcessTransportError extends Error {
   readonly kind: ProcessTransportErrorKind;
   readonly code: string | undefined;
+  readonly processId: number | undefined;
+  readonly definitelyTerminated: boolean;
 
   constructor(
     message: string,
     kind: ProcessTransportErrorKind,
-    options: { readonly cause?: unknown; readonly code?: string } = {},
+    options: {
+      readonly cause?: unknown;
+      readonly code?: string;
+      readonly processId?: number;
+      readonly definitelyTerminated?: boolean;
+    } = {},
   ) {
     super(message, { cause: options.cause });
     this.name = "ProcessTransportError";
     this.kind = kind;
     this.code = options.code;
+    this.processId = options.processId;
+    this.definitelyTerminated = options.definitelyTerminated ?? true;
   }
 }
 
@@ -63,9 +77,17 @@ export class HarnessAdapterError extends AdapterError {
       readonly command: string;
       readonly exitCode?: number | null;
       readonly cause?: unknown;
+      readonly processId?: number;
+      readonly definitelyTerminated?: boolean;
     },
   ) {
-    super(message, retryable, { cause: details.cause });
+    super(message, retryable, {
+      cause: details.cause,
+      ...(details.processId === undefined ? {} : { processId: details.processId }),
+      ...(details.definitelyTerminated === undefined
+        ? {}
+        : { definitelyTerminated: details.definitelyTerminated }),
+    });
     this.name = "HarnessAdapterError";
     this.kind = details.kind;
     this.command = details.command;
@@ -127,7 +149,15 @@ export function createProcessTransport(options: ProcessTransportOptions = {}): P
             stdio: "pipe",
             windowsHide: true,
             windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+            ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
           });
+          if (child.pid !== undefined) {
+            try {
+              request.onStart?.({ processId: child.pid });
+            } catch {
+              // Observers are advisory and must not strand a spawned child.
+            }
+          }
         } catch (error: unknown) {
           reject(toProcessTransportError(request.command, error));
           return;
@@ -155,7 +185,10 @@ export function createProcessTransport(options: ProcessTransportOptions = {}): P
             // The operation still rejects promptly if a platform cannot kill
             // an already-exited child.
           }
-          rejectOnce(new ProcessTransportError(`Command "${request.command}" was aborted.`, "aborted"));
+          rejectOnce(new ProcessTransportError(`Command "${request.command}" was aborted.`, "aborted", {
+            ...(child.pid === undefined ? {} : { processId: child.pid }),
+            definitelyTerminated: false,
+          }));
         };
 
         request.signal?.addEventListener("abort", onAbort, { once: true });
@@ -169,7 +202,7 @@ export function createProcessTransport(options: ProcessTransportOptions = {}): P
         // status/stderr is the useful diagnostic, so prevent an unhandled EPIPE.
         child.stdin.on("error", () => undefined);
         child.on("error", (error: Error) => {
-          rejectOnce(toProcessTransportError(request.command, error));
+          rejectOnce(toProcessTransportError(request.command, error, child.pid));
         });
         child.on("close", (exitCode, signal) => {
           if (settled) {
@@ -182,6 +215,8 @@ export function createProcessTransport(options: ProcessTransportOptions = {}): P
             stderr: Buffer.concat(stderr).toString("utf8"),
             exitCode,
             signal,
+            processId: child.pid,
+            definitelyTerminated: true,
           });
         });
 
@@ -275,7 +310,9 @@ export interface RunHarnessProcessOptions {
   readonly command: string;
   readonly args: readonly string[];
   readonly stdin: string;
+  readonly cwd?: string;
   readonly signal?: AbortSignal;
+  readonly onProcessStart?: (process: ModelProcessStart) => void;
   readonly transport: ProcessTransport;
   readonly redactor?: (text: string) => string;
 }
@@ -293,7 +330,9 @@ export async function runHarnessProcess(options: RunHarnessProcessOptions): Prom
       command: options.command,
       args: options.args,
       stdin: options.stdin,
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.onProcessStart === undefined ? {} : { onStart: options.onProcessStart }),
     });
   } catch (error: unknown) {
     throw mapTransportFailure(options.command, error, scrub);
@@ -323,7 +362,11 @@ export async function runHarnessProcess(options: RunHarnessProcessOptions): Prom
   return result.stdout;
 }
 
-function toProcessTransportError(command: string, error: unknown): ProcessTransportError {
+function toProcessTransportError(
+  command: string,
+  error: unknown,
+  processId?: number,
+): ProcessTransportError {
   const code = errorCode(error);
   const kind: ProcessTransportErrorKind = code === "ENOENT" ? "missing-command" : "spawn";
   const message =
@@ -333,6 +376,8 @@ function toProcessTransportError(command: string, error: unknown): ProcessTransp
   return new ProcessTransportError(message, kind, {
     cause: error,
     ...(code === undefined ? {} : { code }),
+    ...(processId === undefined ? {} : { processId }),
+    definitelyTerminated: processId === undefined,
   });
 }
 
@@ -350,12 +395,28 @@ function mapTransportFailure(
       : kind === "aborted"
         ? `${command} was aborted before it completed.`
         : `Unable to start ${command}: ${errorMessage(error)}`;
+  const process = processMetadata(error);
 
   return new HarnessAdapterError(scrub(message), retryable, {
     kind,
     command,
     cause: error,
+    ...(process.processId === undefined ? {} : { processId: process.processId }),
+    definitelyTerminated: process.definitelyTerminated,
   });
+}
+
+function processMetadata(error: unknown): {
+  readonly processId: number | undefined;
+  readonly definitelyTerminated: boolean;
+} {
+  if (error instanceof ProcessTransportError) {
+    return {
+      processId: error.processId,
+      definitelyTerminated: error.definitelyTerminated,
+    };
+  }
+  return { processId: undefined, definitelyTerminated: true };
 }
 
 function transportFailureKind(error: unknown): "missing-command" | "aborted" | "spawn" {

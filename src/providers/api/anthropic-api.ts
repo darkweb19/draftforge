@@ -32,8 +32,16 @@ export function createAnthropicApiAdapter(options: AnthropicApiAdapterOptions = 
       transport: "api",
       authMode: "api-key",
       roles: ["architect", "worker", "reviewer"],
+      workspaceAccess: false,
     },
     async run(request) {
+      if (request.workingDirectory !== undefined) {
+        throw new ApiAdapterError(
+          "Anthropic API is text-only and cannot execute in a local workspace.",
+          false,
+          { kind: "client", provider: "Anthropic" },
+        );
+      }
       const key = requireKey(env);
       const redactor = options.redactor ?? createRedactor([key]);
       const model = request.model === "provider-default" ? DEFAULT_MODEL : request.model;

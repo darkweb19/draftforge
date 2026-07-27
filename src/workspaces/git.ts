@@ -1,4 +1,4 @@
-import { access, lstat, realpath } from "node:fs/promises";
+import { access, lstat, readFile, realpath } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import type {
   CreateOrRecoverWorkspaceOptions,
@@ -18,6 +18,24 @@ import {
 
 const ATTEMPT_CONFIG_KEY = "draftforge.attempt-id";
 const BASE_COMMIT_CONFIG_KEY = "draftforge.base-commit";
+const ALLOWED_UNTRACKED_ROOTS = ["node_modules", "dist", "coverage"] as const;
+const UNTRACKED_PATHSPECS = [
+  ".",
+  ...ALLOWED_UNTRACKED_ROOTS.flatMap((root) => [
+    `:(exclude)${root}`,
+    `:(exclude)${root}/**`,
+  ]),
+] as const;
+const UNSAFE_INSPECTION_CONFIG_KEYS: ReadonlyMap<string, string> = new Map([
+  ["core.fsmonitor", "core.fsmonitor"],
+  ["core.hookspath", "core.hooksPath"],
+  ["core.excludesfile", "core.excludesFile"],
+] as const);
+const REPOSITORY_NORMALIZATION_CONFIG_KEYS: ReadonlyMap<string, string> = new Map([
+  ["core.autocrlf", "core.autocrlf"],
+  ["core.eol", "core.eol"],
+  ["core.safecrlf", "core.safecrlf"],
+] as const);
 
 export class WorkspaceError extends Error {
   constructor(message: string, options: { readonly cause?: unknown } = {}) {
@@ -96,7 +114,10 @@ export class GitWorkspace implements WorkspacePort {
     }
   }
 
-  async inspect(attempt: WorkspaceAttempt): Promise<WorkspaceInspection> {
+  async inspect(
+    attempt: WorkspaceAttempt,
+    expectedBaseCommit?: string,
+  ): Promise<WorkspaceInspection> {
     const identity = workspaceIdentity(this.#projectRoot, attempt);
     if (!(await pathExists(identity.path))) {
       return { state: "missing", location: undefined, dirty: false, changedPaths: [], reason: undefined };
@@ -106,6 +127,7 @@ export class GitWorkspace implements WorkspacePort {
     }
 
     try {
+      await this.assertWorkspaceTopLevel(identity.path);
       if (!(await this.belongsToProjectRepository(identity.path))) {
         return unsafeInspection(
           `Workspace at ${identity.path} belongs to a different Git repository and was preserved.`,
@@ -119,22 +141,33 @@ export class GitWorkspace implements WorkspacePort {
       if (configuredAttempt !== undefined && configuredAttempt !== attempt.attemptId) {
         return unsafeInspection(`Workspace at ${identity.path} belongs to attempt "${configuredAttempt}".`);
       }
+      await this.assertInspectionControlsSafe(identity.path);
       const configuredBase = await this.getConfig(identity.path, BASE_COMMIT_CONFIG_KEY);
-      const baseCommit = configuredBase ?? (await this.#headCommit(identity.path));
-      if (!isCommitHash(baseCommit)) {
-        return unsafeInspection(`Workspace at ${identity.path} has invalid base commit metadata.`);
+      const baseCommit = await this.forkBase(identity.path);
+      if (configuredBase !== undefined && configuredBase !== baseCommit) {
+        return unsafeInspection(
+          `Workspace at ${identity.path} base metadata disagrees with its Git fork point.`,
+        );
       }
-      const dirty = await this.isDirty(identity.path);
+      if (expectedBaseCommit !== undefined && expectedBaseCommit !== baseCommit) {
+        return unsafeInspection(
+          `Workspace at ${identity.path} fork point does not match the scheduler-owned attempt base.`,
+        );
+      }
       const location: WorkspaceLocation = { ...identity, baseCommit };
       const changedPaths = await this.changedPathsFor(location);
+      const dirty = await this.isDirty(identity.path) || changedPaths.length > 0;
       return { state: "ready", location, dirty, changedPaths, reason: undefined };
     } catch (error: unknown) {
       return unsafeInspection(`Workspace at ${identity.path} cannot be inspected safely: ${messageOf(error)}`);
     }
   }
 
-  async changedPaths(attempt: WorkspaceAttempt): Promise<readonly string[]> {
-    const inspection = await this.inspect(attempt);
+  async changedPaths(
+    attempt: WorkspaceAttempt,
+    expectedBaseCommit?: string,
+  ): Promise<readonly string[]> {
+    const inspection = await this.inspect(attempt, expectedBaseCommit);
     if (inspection.state !== "ready" || inspection.location === undefined) {
       throw new WorkspaceError(inspection.reason ?? `Workspace for ${attempt.taskId} does not exist.`);
     }
@@ -175,6 +208,16 @@ export class GitWorkspace implements WorkspacePort {
     return this.#headCommit(this.#projectRoot);
   }
 
+  async forkBase(workspacePath: string): Promise<string> {
+    const projectHead = await this.#projectBaseCommit();
+    const result = await this.runGit(workspacePath, ["merge-base", "HEAD", projectHead]);
+    const commit = result.stdout.trim();
+    if (!isCommitHash(commit)) {
+      throw new WorkspaceError("Git did not return a valid workspace fork point.");
+    }
+    return commit;
+  }
+
   async #headCommit(cwd: string): Promise<string> {
     const output = await this.runGit(cwd, ["rev-parse", "HEAD"]);
     const commit = output.stdout.trim();
@@ -188,6 +231,15 @@ export class GitWorkspace implements WorkspacePort {
     const result = await this.runGit(this.#projectRoot, ["rev-parse", "--show-toplevel"]);
     if ((await realpath(result.stdout.trim())) !== (await realpath(this.#projectRoot))) {
       throw new WorkspaceError("The workspace root must be the top level of a Git repository.");
+    }
+  }
+
+  async assertWorkspaceTopLevel(workspacePath: string): Promise<void> {
+    const result = await this.runGit(workspacePath, ["rev-parse", "--show-toplevel"]);
+    if ((await realpath(result.stdout.trim())) !== (await realpath(workspacePath))) {
+      throw new WorkspaceError(
+        `Git worktree top level does not match the deterministic workspace path ${workspacePath}.`,
+      );
     }
   }
 
@@ -234,23 +286,241 @@ export class GitWorkspace implements WorkspacePort {
   }
 
   async isDirty(cwd: string): Promise<boolean> {
-    const result = await this.runGit(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+    const result = await this.runTrustedInspectionGit(cwd, [
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--ignore-submodules=none",
+    ]);
     return result.stdout.length > 0;
   }
 
   async changedPathsFor(location: WorkspaceLocation): Promise<readonly string[]> {
-    const diff = await this.runGit(location.path, [
+    const diff = await this.runTrustedInspectionGit(location.path, [
       "diff",
+      "--no-ext-diff",
+      "--no-textconv",
       "--name-status",
       "-z",
       "--find-renames",
+      "--ignore-submodules=none",
       location.baseCommit,
       "--",
     ]);
-    const untracked = await this.runGit(location.path, ["ls-files", "--others", "--exclude-standard", "-z"]);
-    return [...new Set([...parseNameStatus(diff.stdout), ...parseNullDelimitedPaths(untracked.stdout)])]
+    const visibleUntracked = await this.runTrustedInspectionGit(location.path, [
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "-z",
+      "--",
+      ...UNTRACKED_PATHSPECS,
+    ]);
+    const ignoredUntracked = await this.runTrustedInspectionGit(location.path, [
+      "ls-files",
+      "--others",
+      "--ignored",
+      "--exclude-standard",
+      "--directory",
+      "-z",
+      "--",
+      ...UNTRACKED_PATHSPECS,
+    ]);
+    // This exclusion-independent view is deliberately directory summarized:
+    // it proves that mutable ignore rules did not make an untracked region
+    // disappear without recursively walking fixed allowed output roots.
+    const allUntracked = await this.runTrustedInspectionGit(location.path, [
+      "ls-files",
+      "--others",
+      "--directory",
+      "--no-empty-directory",
+      "-z",
+      "--",
+      ...UNTRACKED_PATHSPECS,
+    ]);
+    const untracked = mergeAuthoritativeUntrackedPaths(
+      parseNullDelimitedPaths(visibleUntracked.stdout),
+      parseNullDelimitedPaths(ignoredUntracked.stdout),
+      parseNullDelimitedPaths(allUntracked.stdout),
+    );
+    const fixedOutputChanges = await this.changedFixedOutputRoots(location.path);
+    const ignoredControls = await this.ignoredControlPaths(location.path);
+    return [...new Set([
+      ...parseNameStatus(diff.stdout),
+      ...untracked,
+      ...fixedOutputChanges,
+      ...ignoredControls,
+    ])]
       .map(normalizeRepositoryPath)
       .sort((left, right) => left.localeCompare(right, "en"));
+  }
+
+  async changedFixedOutputRoots(workspacePath: string): Promise<readonly string[]> {
+    const changed: string[] = [];
+    for (const root of ALLOWED_UNTRACKED_ROOTS) {
+      const ignored = await this.#transport.run({
+        command: "git",
+        args: trustedInspectionArguments([
+          "check-ignore",
+          "--quiet",
+          "--no-index",
+          "--",
+          root,
+        ]),
+        cwd: workspacePath,
+      });
+      if (ignored.exitCode === 0 && await isDirectory(resolve(workspacePath, root))) {
+        continue;
+      }
+      if (ignored.exitCode !== 0 && ignored.exitCode !== 1) {
+        this.assertGitSuccess(ignored, ["check-ignore", "--quiet", "--no-index", "--", root]);
+      }
+      const untracked = await this.runTrustedInspectionGit(workspacePath, [
+        "ls-files",
+        "--others",
+        "--directory",
+        "--no-empty-directory",
+        "-z",
+        "--",
+        root,
+      ]);
+      if (parseNullDelimitedPaths(untracked.stdout).length > 0) {
+        // The fixed root is not actually ignored, so it is authoritative. A
+        // root summary avoids expanding a potentially large generated tree.
+        changed.push(root);
+      }
+    }
+    return changed;
+  }
+
+  async assertInspectionControlsSafe(workspacePath: string): Promise<void> {
+    await this.assertInspectionConfigSafe(workspacePath);
+    await this.assertIndexFlagsSafe(workspacePath);
+    await this.assertExcludesSafe(workspacePath);
+    await this.assertHistoryOverridesSafe(workspacePath);
+  }
+
+  async assertInspectionConfigSafe(workspacePath: string): Promise<void> {
+    const configured = await this.runGit(workspacePath, [
+      "config",
+      "--null",
+      "--name-only",
+      "--list",
+    ]);
+    const keys = parseConfigKeys(configured.stdout);
+    const normalized = keys.map((key) => key.toLowerCase());
+    if (normalized.some((key) => /^filter\..*\.(?:clean|process)$/u.test(key))) {
+      throw new WorkspaceError(
+        "Git clean/process content filters are configured for the workspace.",
+      );
+    }
+    const unsafeKey = normalized.find((key) => UNSAFE_INSPECTION_CONFIG_KEYS.has(key));
+    if (unsafeKey !== undefined) {
+      throw new WorkspaceError(
+        `Git inspection configuration ${JSON.stringify(UNSAFE_INSPECTION_CONFIG_KEYS.get(unsafeKey))} is unsafe for the workspace.`,
+      );
+    }
+    for (const scope of ["--local", "--worktree"] as const) {
+      const scoped = await this.runGit(workspacePath, [
+        "config",
+        scope,
+        "--null",
+        "--name-only",
+        "--list",
+      ]);
+      const normalizationKey = parseConfigKeys(scoped.stdout)
+        .map((key) => key.toLowerCase())
+        .find((key) => REPOSITORY_NORMALIZATION_CONFIG_KEYS.has(key));
+      if (normalizationKey !== undefined) {
+        throw new WorkspaceError(
+          `Git repository normalization ${JSON.stringify(REPOSITORY_NORMALIZATION_CONFIG_KEYS.get(normalizationKey))} is unsafe for worker inspection.`,
+        );
+      }
+    }
+  }
+
+  async assertIndexFlagsSafe(workspacePath: string): Promise<void> {
+    const assumeUnchanged = parseTaggedPaths(
+      (await this.runTrustedInspectionGit(workspacePath, ["ls-files", "-v", "-z"])).stdout,
+    );
+    for (const entry of assumeUnchanged) {
+      if (entry.tag.toUpperCase() === "S") {
+        throw new WorkspaceError(
+          `Git index path ${JSON.stringify(entry.path)} is marked skip-worktree.`,
+        );
+      }
+      if (entry.tag !== entry.tag.toUpperCase()) {
+        throw new WorkspaceError(
+          `Git index path ${JSON.stringify(entry.path)} is marked assume-unchanged.`,
+        );
+      }
+    }
+
+    const fsmonitor = parseTaggedPaths(
+      (await this.runTrustedInspectionGit(workspacePath, ["ls-files", "-f", "-z"])).stdout,
+    );
+    for (const entry of fsmonitor) {
+      if (entry.tag !== entry.tag.toUpperCase()) {
+        throw new WorkspaceError(
+          `Git index path ${JSON.stringify(entry.path)} is marked fsmonitor-valid.`,
+        );
+      }
+    }
+    const staged = await this.runTrustedInspectionGit(workspacePath, [
+      "ls-files",
+      "--stage",
+      "-z",
+    ]);
+    const gitlink = parseIndexStageEntries(staged.stdout).find(
+      (entry) => entry.mode === "160000",
+    );
+    if (gitlink !== undefined) {
+      throw new WorkspaceError(
+        `Git submodule path ${JSON.stringify(gitlink.path)} is unsupported for worker inspection.`,
+      );
+    }
+  }
+
+  async assertExcludesSafe(workspacePath: string): Promise<void> {
+    const excludePathResult = await this.runGit(workspacePath, [
+      "rev-parse",
+      "--git-path",
+      "info/exclude",
+    ]);
+    const excludePath = resolve(workspacePath, excludePathResult.stdout.trim());
+    const contents = await readOptionalFile(excludePath);
+    if (contents !== undefined && hasActiveControlLine(contents)) {
+      throw new WorkspaceError("Git common info/exclude contains active exclusion patterns.");
+    }
+  }
+
+  async assertHistoryOverridesSafe(workspacePath: string): Promise<void> {
+    const replacements = await this.runGit(workspacePath, ["replace", "--list"]);
+    if (parseLineDelimitedValues(replacements.stdout).length > 0) {
+      throw new WorkspaceError("Git replacement refs are active for the workspace.");
+    }
+
+    const graftsPathResult = await this.runGit(workspacePath, [
+      "rev-parse",
+      "--git-path",
+      "info/grafts",
+    ]);
+    const graftsPath = resolve(workspacePath, graftsPathResult.stdout.trim());
+    const contents = await readOptionalFile(graftsPath);
+    if (contents !== undefined && hasActiveControlLine(contents)) {
+      throw new WorkspaceError("Git common info/grafts contains active history overrides.");
+    }
+  }
+
+  async ignoredControlPaths(workspacePath: string): Promise<readonly string[]> {
+    const controls: string[] = [];
+    if (await pathExists(resolve(workspacePath, ".draftforge", "runs"))) {
+      controls.push(".draftforge/runs");
+    }
+    if (await pathExists(resolve(workspacePath, ".draftforge", "config.local.json"))) {
+      controls.push(".draftforge/config.local.json");
+    }
+    return controls;
   }
 
   async branchExists(branch: string): Promise<boolean> {
@@ -275,6 +545,19 @@ export class GitWorkspace implements WorkspacePort {
     return result;
   }
 
+  async runTrustedInspectionGit(
+    cwd: string,
+    args: readonly string[],
+  ): Promise<GitProcessResult> {
+    const result = await this.#transport.run({
+      command: "git",
+      args: trustedInspectionArguments(args),
+      cwd,
+    });
+    this.assertGitSuccess(result, args);
+    return result;
+  }
+
   assertGitSuccess(result: GitProcessResult, args: readonly string[]): void {
     if (result.exitCode === 0) {
       return;
@@ -291,6 +574,34 @@ export function workspacePath(projectRoot: string, attempt: WorkspaceAttempt): s
 export function workspaceBranch(attempt: WorkspaceAttempt): string {
   assertAttempt(attempt);
   return `draftforge/${attempt.runId}/${attempt.taskId}/${attempt.attemptId}`;
+}
+
+export function trustedInspectionArguments(
+  args: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): readonly string[] {
+  const nullDevice = platform === "win32" ? "NUL" : "/dev/null";
+  return [
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    `core.hooksPath=${nullDevice}`,
+    "-c",
+    "core.fileMode=true",
+    "-c",
+    "core.trustctime=true",
+    "-c",
+    "core.checkStat=default",
+    "-c",
+    "core.ignoreStat=false",
+    "-c",
+    "core.autocrlf=false",
+    "-c",
+    "core.eol=lf",
+    "-c",
+    "core.safecrlf=true",
+    ...args,
+  ];
 }
 
 function workspaceIdentity(projectRoot: string, attempt: WorkspaceAttempt): WorkspaceLocation {
@@ -375,20 +686,157 @@ function parseNameStatus(output: string): readonly string[] {
 }
 
 function parseNullDelimitedPaths(output: string): readonly string[] {
-  return output.length === 0 ? [] : output.slice(0, -1).split("\0");
+  if (output.length === 0) {
+    return [];
+  }
+  if (!output.endsWith("\0")) {
+    throw new WorkspaceError("Git returned an incomplete null-delimited path record.");
+  }
+  return output.slice(0, -1).split("\0");
+}
+
+function parseTaggedPaths(output: string): readonly {
+  readonly tag: string;
+  readonly path: string;
+}[] {
+  return parseNullDelimitedPaths(output).map((record) => {
+    if (record.length < 3 || record[1] !== " ") {
+      throw new WorkspaceError("Git returned an incomplete index-flag record.");
+    }
+    return {
+      tag: record[0] as string,
+      path: normalizeRepositoryPath(record.slice(2)),
+    };
+  });
+}
+
+function parseIndexStageEntries(output: string): readonly {
+  readonly mode: string;
+  readonly path: string;
+}[] {
+  return parseNullDelimitedPaths(output).map((record) => {
+    const separator = record.indexOf("\t");
+    if (separator <= 0) {
+      throw new WorkspaceError("Git returned an incomplete index-stage record.");
+    }
+    const metadata = record.slice(0, separator).split(" ");
+    const mode = metadata[0];
+    const objectId = metadata[1];
+    const stage = metadata[2];
+    if (
+      metadata.length !== 3 ||
+      mode === undefined ||
+      !/^[0-7]{6}$/u.test(mode) ||
+      objectId === undefined ||
+      !isCommitHash(objectId) ||
+      stage === undefined ||
+      !/^[0-3]$/u.test(stage)
+    ) {
+      throw new WorkspaceError("Git returned malformed index-stage metadata.");
+    }
+    return {
+      mode,
+      path: normalizeRepositoryPath(record.slice(separator + 1)),
+    };
+  });
+}
+
+function mergeAuthoritativeUntrackedPaths(
+  visibleRecords: readonly string[],
+  ignoredRecords: readonly string[],
+  allRecords: readonly string[],
+): readonly string[] {
+  const authoritative = [...new Set(
+    [...visibleRecords, ...ignoredRecords]
+      .map(normalizeUntrackedRecord)
+      .filter((path) => !isAllowedUntrackedOutput(path)),
+  )];
+  for (const record of allRecords) {
+    const directory = record.endsWith("/");
+    const path = normalizeUntrackedRecord(record);
+    if (isAllowedUntrackedOutput(path) || rawUntrackedRecordIsCovered(path, directory, authoritative)) {
+      continue;
+    }
+    // A summarized path not explained by either the exact visible view or the
+    // ignored view is retained conservatively instead of trusted away.
+    authoritative.push(path);
+  }
+  return authoritative;
+}
+
+function normalizeUntrackedRecord(record: string): string {
+  return normalizeRepositoryPath(record.endsWith("/") ? record.slice(0, -1) : record);
+}
+
+function rawUntrackedRecordIsCovered(
+  rawPath: string,
+  directory: boolean,
+  authoritative: readonly string[],
+): boolean {
+  return directory
+    ? authoritative.some((path) => path === rawPath || path.startsWith(`${rawPath}/`))
+    : authoritative.includes(rawPath);
+}
+
+function isAllowedUntrackedOutput(path: string): boolean {
+  return ALLOWED_UNTRACKED_ROOTS.some(
+    (root) => path === root || path.startsWith(`${root}/`),
+  );
+}
+
+function hasActiveControlLine(contents: string): boolean {
+  return contents
+    .split(/\r?\n/u)
+    .some((line) => line.trim().length > 0 && !line.startsWith("#"));
+}
+
+function parseLineDelimitedValues(output: string): readonly string[] {
+  return output
+    .split(/\r?\n/u)
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
+function parseConfigKeys(output: string): readonly string[] {
+  const keys = parseNullDelimitedPaths(output);
+  if (
+    keys.some((key) =>
+      key.length === 0 ||
+      key.includes("\r") ||
+      key.includes("\n"))
+  ) {
+    throw new WorkspaceError("Git returned a malformed configuration key list.");
+  }
+  return keys;
+}
+
+async function readOptionalFile(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error: unknown) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 export function normalizeRepositoryPath(value: string): string {
-  const normalized = value.replace(/\\/gu, "/");
   if (
-    normalized.length === 0 ||
-    normalized.startsWith("/") ||
-    /^[A-Za-z]:\//u.test(normalized) ||
-    normalized.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
+    value.length === 0 ||
+    value.includes("\\") ||
+    value.startsWith("/") ||
+    /^[A-Za-z]:\//u.test(value) ||
+    value.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
   ) {
     throw new WorkspaceError(`Git returned an unsafe repository-relative path: ${JSON.stringify(value)}`);
   }
-  return normalized;
+  return value;
 }
 
 function messageOf(error: unknown): string {

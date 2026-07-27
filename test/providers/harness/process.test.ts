@@ -17,14 +17,15 @@ test("real process transport is fakeable and captures stdout/stderr without a sh
   const child = fakeChild();
   let spawnCall:
     | {
-        readonly command: string;
-        readonly args: readonly string[];
-        readonly shell: boolean | string | undefined;
+      readonly command: string;
+      readonly args: readonly string[];
+      readonly shell: boolean | string | undefined;
+      readonly cwd: string | URL | undefined;
       }
     | undefined;
   const transport = createProcessTransport({
     spawn(command, args, options) {
-      spawnCall = { command, args, shell: options.shell };
+      spawnCall = { command, args, shell: options.shell, cwd: options.cwd };
       queueMicrotask(() => {
         (child.stdout as PassThrough).write("answer");
         (child.stderr as PassThrough).write("diagnostic");
@@ -40,12 +41,14 @@ test("real process transport is fakeable and captures stdout/stderr without a sh
     command: "fake-cli",
     args: ["--mode", "test"],
     stdin: "private prompt",
+    cwd: "/exact/worktree",
   });
 
   assert.deepEqual(spawnCall, {
     command: "fake-cli",
     args: ["--mode", "test"],
     shell: false,
+    cwd: "/exact/worktree",
   });
   assert.equal(result.stdout, "answer");
   assert.equal(result.stderr, "diagnostic");
@@ -168,21 +171,25 @@ test("harness mapping turns a missing executable into a terminal typed error", a
   );
 });
 
-test("aborting a process kills it and produces a retryable typed adapter error", async () => {
-  const child = fakeChild();
+test("kill refusal without close reports the started PID and uncertain termination", async () => {
+  const child = fakeChild(8124);
   let killed = false;
   child.kill = () => {
     killed = true;
-    return true;
+    return false;
   };
   const transport = createProcessTransport({ spawn: () => child });
   const controller = new AbortController();
+  let startedProcessId: number | undefined;
   const pending = runHarnessProcess({
     command: "fake-cli",
     args: [],
     stdin: "prompt",
     signal: controller.signal,
     transport,
+    onProcessStart(process) {
+      startedProcessId = process.processId;
+    },
   });
 
   controller.abort();
@@ -191,9 +198,33 @@ test("aborting a process kills it and produces a retryable typed adapter error",
     assert.ok(error instanceof HarnessAdapterError);
     assert.equal(error.kind, "aborted");
     assert.equal(error.retryable, true);
+    assert.equal(error.processId, 8124);
+    assert.equal(error.definitelyTerminated, false);
     return true;
   });
   assert.equal(killed, true);
+  assert.equal(startedProcessId, 8124);
+});
+
+test("a late parent close cannot prove descendants terminated after abort", async () => {
+  const child = fakeChild(8125);
+  const transport = createProcessTransport({ spawn: () => child });
+  const controller = new AbortController();
+  const pending = transport.run({
+    command: "fake-cli",
+    args: [],
+    stdin: "prompt",
+    signal: controller.signal,
+  });
+
+  controller.abort();
+  const error = await pending.catch((caught: unknown) => caught);
+  // A close only proves the direct child exited. Descendants may still hold the
+  // worktree, so the already-reported timeout/abort remains conservative.
+  child.emit("close", 0, null);
+  assert.ok(error instanceof ProcessTransportError);
+  assert.equal(error.processId, 8125);
+  assert.equal(error.definitelyTerminated, false);
 });
 
 test("process failure mapping redacts diagnostics and distinguishes retryability", async () => {
@@ -256,7 +287,7 @@ test("empty successful output is a terminal contract failure", async () => {
   );
 });
 
-function fakeChild(): ChildProcessWithoutNullStreams {
+function fakeChild(processId?: number): ChildProcessWithoutNullStreams {
   const child = new EventEmitter() as EventEmitter & {
     stdin: PassThrough;
     stdout: PassThrough;
@@ -267,5 +298,8 @@ function fakeChild(): ChildProcessWithoutNullStreams {
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
   child.kill = () => true;
+  if (processId !== undefined) {
+    Object.defineProperty(child, "pid", { value: processId });
+  }
   return child as unknown as ChildProcessWithoutNullStreams;
 }

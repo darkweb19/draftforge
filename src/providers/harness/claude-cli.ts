@@ -16,6 +16,7 @@ export function createClaudeCliAdapter(options: ClaudeCliAdapterOptions = {}): M
       transport: "harness",
       authMode: "local-cli",
       roles: ["architect", "worker", "reviewer"],
+      workspaceAccess: true,
     },
     async run(request) {
       const args = [
@@ -29,7 +30,9 @@ export function createClaudeCliAdapter(options: ClaudeCliAdapterOptions = {}): M
         args,
         stdin: formatPrompt(request.system, request.user),
         transport,
+        ...(request.workingDirectory === undefined ? {} : { cwd: request.workingDirectory }),
         ...(request.signal === undefined ? {} : { signal: request.signal }),
+        ...(request.onProcessStart === undefined ? {} : { onProcessStart: request.onProcessStart }),
         ...(options.redactor === undefined ? {} : { redactor: options.redactor }),
       });
       return { text };

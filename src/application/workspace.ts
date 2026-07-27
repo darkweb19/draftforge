@@ -50,8 +50,8 @@ export interface WorkspacePort {
     attempt: WorkspaceAttempt,
     options?: CreateOrRecoverWorkspaceOptions,
   ): Promise<WorkspaceLocation>;
-  inspect(attempt: WorkspaceAttempt): Promise<WorkspaceInspection>;
-  changedPaths(attempt: WorkspaceAttempt): Promise<readonly string[]>;
+  inspect(attempt: WorkspaceAttempt, expectedBaseCommit?: string): Promise<WorkspaceInspection>;
+  changedPaths(attempt: WorkspaceAttempt, expectedBaseCommit?: string): Promise<readonly string[]>;
   processLiveness(process: WorkspaceProcess): Promise<ProcessLiveness>;
   cleanup(
     attempt: WorkspaceAttempt,
