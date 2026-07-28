@@ -9,13 +9,14 @@ The lead model decides and delegates. It does not implement. Lower-cost workers 
 Phase 1 is complete. Phase 2 has provider-independent planning contracts,
 resumable interview state, DAG validation, an explicit approval gate, a
 recorded architect loop you can drive by hand, and recorded plan revision.
-Phase 3 is underway: a role-routed model-runner factory and shared adapter
+Phase 3 is complete: a role-routed model-runner factory and shared adapter
 reliability (timeout, bounded retry, secret redaction) sit behind the
 model-runner port. Codex CLI and Claude Code are available through local
 subscription-backed authentication, and the OpenAI and Anthropic API transports
-are available through environment-supplied keys. `doctor` authentication checks
-and a one-turn, runner-backed planning path are implemented; the Phase 3 exit
-gate remains authoritative in `SESSION.md`.
+are available through environment-supplied keys.
+Phase 4 is implemented: `run` and `resume` schedule bounded task contracts into
+isolated Git worktrees with durable, resumable execution attempts. The phase
+exit gates remain authoritative in `SESSION.md`.
 
 ## Core commands
 
@@ -31,14 +32,13 @@ draftforge plan --submit <response.json>
 draftforge plan --answer <id>=<text>
 draftforge plan --approve --by <actor>
 draftforge plan --revise --reason <text> --by <actor> [--reopen <id>] [--retire <id>]
-draftforge run
-draftforge resume
+draftforge run [--by <actor>]
+draftforge resume [--by <actor>]
 draftforge handoff
 ```
 
-`init`, `doctor`, `status`, `handoff`, and the provider-neutral planning
-checkpoint are wired. `run` and `resume` fail clearly until delegated execution
-is implemented.
+`init`, `doctor`, `status`, `handoff`, the provider-neutral planning checkpoint,
+and delegated execution are all wired.
 
 `plan <idea.md>` initializes or resumes `.draftforge/planning.json` without
 calling a provider. The planning loop can be driven manually without any
@@ -91,6 +91,58 @@ each configured role adapter. Missing commands, local logins, and API-key
 variables are reported as `missing` and do not fail the command; invalid
 configuration or an authentication-status probe error returns a non-zero exit.
 Secret values and authentication command output are never printed.
+
+## Delegated execution
+
+```text
+draftforge run       # reconcile, claim ready non-conflicting tasks, execute them
+draftforge resume    # reconcile and continue interrupted attempts only
+```
+
+`run` recomputes readiness, claims up to `roles.worker.maxConcurrency` tasks
+whose dependencies are done and whose owned paths do not overlap any active
+task, and executes them concurrently. The project lock is held only to claim, to
+finalize a result, and to render the handoff — never during a worktree or model
+operation.
+
+**Worktree retention.** Each attempt gets a deterministic Git worktree at
+`.draftforge/runs/<run-id>/worktrees/<task-id>`. Cleanup is conservative:
+interrupted, timed-out, blocked, and scope-violating attempts keep their
+worktree for inspection and explicit resume, and a worktree tied to a live or
+indeterminate worker process is never reused by another worker.
+
+**Attempt evidence.** Every attempt records a manifest (task, contract hash,
+base commit, workspace identity, lifecycle, budget), an attempt event log, and a
+validated result artifact holding the authoritative changed paths, scope
+violations, and failure classification. All of it is secret-redacted; raw model
+text and provider error causes are never persisted. Scope is enforced from a
+content-derived diff of the worktree, not from the paths the worker reports.
+
+**Capability limits.** Only workspace-capable harness routes (`codex-cli`,
+`claude-cli`) can run workers. An API-backed worker route is refused before any
+task state changes, because a text-only transport cannot make the changes it
+would claim. An unapproved plan is refused the same way. Both refusals exit `2`
+and leave the project untouched.
+
+**Review handoff.** A worker result advances a task only to `review`. Nothing in
+`run` or `resume` marks a task `done`; acceptance is an independent reviewer
+decision, and a successor stays blocked while its predecessor is `active` or
+`review`.
+
+**Safe resume.** `resume` reconciles manifests, worktrees, result artifacts,
+events, and canonical state before doing anything else. A persisted valid result
+is finalized to `review` or `blocked` *without another model call*; an
+interrupted attempt is re-dispatched under its own identity into its own
+worktree; `review` and `done` tasks are never redispatched. Acceptance is never
+inferred from an event alone — a result event with no result artifact is
+reported for inspection instead of being accepted or repeated. Reconciliation is
+idempotent, so running it again changes nothing.
+
+`run` and `resume` print one labelled line per outcome class — dispatched,
+resumed, reconciled, deferred (with a per-task reason), review-ready, blocked,
+orphan attempts, and no-work. Exit `0` means nothing failed, `1` means a task is
+blocked or an attempt needs manual inspection, and `2` means the command was
+refused before touching state.
 
 ## Initializing a project
 

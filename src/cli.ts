@@ -2,10 +2,13 @@
 
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { ExecutionRefusedError, type ExecutionMode } from "./application/execution.js";
+import { WorkerCapabilityError } from "./application/worker.js";
 import { runDoctor } from "./commands/doctor.js";
 import { loadProjectConfig } from "./config/config.js";
 import { runInit, type InitOptions } from "./commands/init.js";
 import { runPlan, type PlanOptions, type PlanResult } from "./commands/plan.js";
+import { runExecution, type RunOptions } from "./commands/run.js";
 import { readProjectState, writeSession } from "./state/files.js";
 import { inspectProjectHealth } from "./state/health.js";
 
@@ -107,9 +110,20 @@ export async function main(
     }
 
     case "run":
-    case "resume":
-      io.error(`${command} is planned but not implemented until Phase 4.`);
-      return 2;
+    case "resume": {
+      try {
+        return await runExecutionCommand(command, args.slice(1), io, cwd);
+      } catch (error: unknown) {
+        io.error(toErrorMessage(error));
+        // A refusal is an unmet precondition the operator must clear, not a
+        // failed run: it is reported like a usage error and changed nothing.
+        return error instanceof CliUsageError ||
+          error instanceof ExecutionRefusedError ||
+          error instanceof WorkerCapabilityError
+          ? 2
+          : 1;
+      }
+    }
 
     default:
       io.error(`Unknown command: ${command}`);
@@ -206,6 +220,39 @@ async function runPlanCommand(args: readonly string[], io: CliIo, cwd: string): 
     }.`,
   );
   return 0;
+}
+
+async function runExecutionCommand(
+  mode: ExecutionMode,
+  args: readonly string[],
+  io: CliIo,
+  cwd: string,
+): Promise<number> {
+  const result = await runExecution(resolve(cwd), parseRunArgs(mode, args));
+  for (const line of result.lines) {
+    io.out(line);
+  }
+  return result.exitCode;
+}
+
+function parseRunArgs(mode: ExecutionMode, args: readonly string[]): RunOptions {
+  let actor: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] as string;
+    if (arg === "--by") {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("--") || value.trim().length === 0) {
+        throw new CliUsageError("--by requires a non-empty actor.");
+      }
+      actor = value;
+      index += 1;
+    } else {
+      throw new CliUsageError(`Unknown ${mode} option: ${arg}`);
+    }
+  }
+
+  return { mode, ...(actor === undefined ? {} : { actor }) };
 }
 
 const PLAN_USAGE = [
@@ -453,10 +500,20 @@ Commands:
                       --by <actor>      Required requesting identity
                       --reopen <id>     Reopen a completed task; repeatable
                       --retire <id>     Retire a started or completed task
-  run               Execute ready worker tasks (Phase 4)
-  resume            Resume interrupted work (Phase 4)
+  run               Reconcile, then claim and execute ready worker tasks
+                    concurrently in isolated worktrees
+                      --by <actor>   Recorded dispatch identity
+  resume            Reconcile interrupted attempts and continue them in their
+                    own worktrees; claims no new work
+                      --by <actor>   Recorded dispatch identity
   handoff           Regenerate SESSION.md from canonical state
   help              Show this help
+
+Run and resume report dispatched, resumed, reconciled, deferred, review-ready,
+blocked, and no-work outcomes. Exit 0 means nothing failed, 1 means a task was
+blocked or an attempt needs manual inspection, and 2 means the command was
+refused before touching task state (bad options, an unapproved plan, or a
+text-only worker route).
 `;
 }
 

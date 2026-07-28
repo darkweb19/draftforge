@@ -2,6 +2,27 @@ export { main, type CliIo } from "./cli.js";
 export { runDoctor, type DoctorCheck } from "./commands/doctor.js";
 export { runInit, type InitOptions, type InitResult } from "./commands/init.js";
 export {
+  DEFAULT_RUN_ACTOR,
+  renderExecutionSummary,
+  runExecution,
+  type RunDependencies,
+  type RunOptions,
+  type RunResult,
+} from "./commands/run.js";
+export {
+  ExecutionRefusedError,
+  executeProject,
+  executionDidWork,
+  executionExitCode,
+  type DeferralReason,
+  type DeferredTaskRecord,
+  type ExecutionInput,
+  type ExecutionMode,
+  type ExecutionSummary,
+  type TaskDisposition,
+  type TaskExecutionRecord,
+} from "./application/execution.js";
+export {
   assertProjectConfig,
   CONFIG_PATH,
   defaultProjectConfig,
