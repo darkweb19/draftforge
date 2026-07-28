@@ -10,6 +10,12 @@ export interface GitProcessRequest {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly signal?: AbortSignal;
+  /**
+   * Per-invocation environment overlay merged onto the inherited environment.
+   * It exists so a caller can point one Git command at a private index file
+   * without mutating `process.env`, which is shared by concurrent attempts.
+   */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export interface GitProcessResult {
@@ -94,6 +100,9 @@ export function createGitProcessTransport(
             stdio: "pipe",
             windowsHide: true,
             windowsVerbatimArguments: false,
+            // Omitting the key entirely keeps Node's default inheritance, so
+            // callers that need no overlay observe the unchanged behaviour.
+            ...(request.env === undefined ? {} : { env: { ...process.env, ...request.env } }),
           });
         } catch (error: unknown) {
           reject(toGitProcessError(request.command, error));

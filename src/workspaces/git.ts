@@ -1,5 +1,6 @@
-import { access, lstat, readFile, realpath } from "node:fs/promises";
-import { relative, resolve, sep } from "node:path";
+import { access, lstat, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative, resolve, sep } from "node:path";
 import type {
   CreateOrRecoverWorkspaceOptions,
   ProcessLiveness,
@@ -25,6 +26,28 @@ const UNTRACKED_PATHSPECS = [
     `:(exclude)${root}`,
     `:(exclude)${root}/**`,
   ]),
+] as const;
+const NAME_STATUS_DIFF_ARGUMENTS = [
+  "diff",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--name-status",
+  "-z",
+  "--find-renames",
+  "--ignore-submodules=none",
+] as const;
+/**
+ * A sparse scratch index would silently omit tracked paths from the diff, and
+ * an unrefreshed one reports every stat-dirty path as modified. Both are
+ * worker-configurable, so the scratch inspection pins them.
+ */
+const SCRATCH_INDEX_CONFIG_ARGUMENTS = [
+  "-c",
+  "core.sparseCheckout=false",
+  "-c",
+  "index.sparse=false",
+  "-c",
+  "diff.autoRefreshIndex=true",
 ] as const;
 const UNSAFE_INSPECTION_CONFIG_KEYS: ReadonlyMap<string, string> = new Map([
   ["core.fsmonitor", "core.fsmonitor"],
@@ -297,17 +320,7 @@ export class GitWorkspace implements WorkspacePort {
   }
 
   async changedPathsFor(location: WorkspaceLocation): Promise<readonly string[]> {
-    const diff = await this.runTrustedInspectionGit(location.path, [
-      "diff",
-      "--no-ext-diff",
-      "--no-textconv",
-      "--name-status",
-      "-z",
-      "--find-renames",
-      "--ignore-submodules=none",
-      location.baseCommit,
-      "--",
-    ]);
+    const tracked = await this.trackedChangedPaths(location);
     const visibleUntracked = await this.runTrustedInspectionGit(location.path, [
       "ls-files",
       "--others",
@@ -346,13 +359,59 @@ export class GitWorkspace implements WorkspacePort {
     const fixedOutputChanges = await this.changedFixedOutputRoots(location.path);
     const ignoredControls = await this.ignoredControlPaths(location.path);
     return [...new Set([
-      ...parseNameStatus(diff.stdout),
+      ...tracked,
       ...untracked,
       ...fixedOutputChanges,
       ...ignoredControls,
     ])]
       .map(normalizeRepositoryPath)
       .sort((left, right) => left.localeCompare(right, "en"));
+  }
+
+  /**
+   * Tracked-path changes are derived without consulting the worker's index
+   * stat cache. `git diff` normally decides whether to re-hash a working-tree
+   * file from cached stat data, and Git for Windows has no dependable ctime,
+   * so `core.trustctime=true` silently degrades to an mtime plus size
+   * comparison there. A same-size rewrite with a restored mtime would then be
+   * invisible, which would let a worker edit an unowned file undetected and
+   * defeat the ADR 0009 guarantee that the Git diff enforces scope.
+   *
+   * Instead the base tree is read into a private scratch index that carries no
+   * stat data at all, which forces Git to hash the real bytes of every tracked
+   * path. The worker-owned index is still compared against the base separately,
+   * because a staged addition exists only there.
+   */
+  async trackedChangedPaths(location: WorkspaceLocation): Promise<readonly string[]> {
+    const scratchDirectory = await mkdtemp(join(tmpdir(), "draftforge-scratch-index-"));
+    const scratchIndex = join(scratchDirectory, "index");
+    try {
+      await this.runScratchIndexGit(location.path, scratchIndex, [
+        "read-tree",
+        location.baseCommit,
+      ]);
+      const worktreeDiff = await this.runScratchIndexGit(location.path, scratchIndex, [
+        ...NAME_STATUS_DIFF_ARGUMENTS,
+        location.baseCommit,
+        "--",
+      ]);
+      // The real index is authoritative only for what it uniquely holds: this
+      // comparison is object-identity based, so no stat cache participates.
+      const stagedDiff = await this.runTrustedInspectionGit(location.path, [
+        ...NAME_STATUS_DIFF_ARGUMENTS,
+        "--cached",
+        location.baseCommit,
+        "--",
+      ]);
+      return [
+        ...parseNameStatus(worktreeDiff.stdout),
+        ...parseNameStatus(stagedDiff.stdout),
+      ];
+    } finally {
+      // A leaked scratch index would be reused by nothing, but it must never
+      // outlive the inspection that created it.
+      await rm(scratchDirectory, { recursive: true, force: true });
+    }
   }
 
   async changedFixedOutputRoots(workspacePath: string): Promise<readonly string[]> {
@@ -553,6 +612,26 @@ export class GitWorkspace implements WorkspacePort {
       command: "git",
       args: trustedInspectionArguments(args),
       cwd,
+    });
+    this.assertGitSuccess(result, args);
+    return result;
+  }
+
+  /**
+   * Runs a trusted inspection command against a caller-owned index file. The
+   * index is selected per invocation through the injectable process boundary
+   * so concurrent attempts never observe each other's environment.
+   */
+  async runScratchIndexGit(
+    cwd: string,
+    indexFile: string,
+    args: readonly string[],
+  ): Promise<GitProcessResult> {
+    const result = await this.#transport.run({
+      command: "git",
+      args: trustedInspectionArguments([...SCRATCH_INDEX_CONFIG_ARGUMENTS, ...args]),
+      cwd,
+      env: { GIT_INDEX_FILE: indexFile },
     });
     this.assertGitSuccess(result, args);
     return result;

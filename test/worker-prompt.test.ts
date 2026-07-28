@@ -62,7 +62,7 @@ test("worker prompt includes only approved bounded context and explicit workspac
   }
 });
 
-test("worker prompt rejects lexical escapes and symlinks whose real path leaves the worktree", async () => {
+test("worker prompt rejects lexical escapes and symlinks whose real path leaves the worktree", async (t) => {
   const parent = await mkdtemp(join(tmpdir(), "draftforge-worker-boundary-"));
   const root = join(parent, "worktree");
   try {
@@ -70,7 +70,6 @@ test("worker prompt rejects lexical escapes and symlinks whose real path leaves 
     await writeFile(join(root, "AGENTS.md"), "rules", "utf8");
     const outside = join(parent, "outside.md");
     await writeFile(outside, "outside", "utf8");
-    await symlink(outside, join(root, "docs", "escape.md"));
     const manifest = createExecutionAttemptManifest({
       reference: { runId: "run-01", attemptId: "attempt-01" },
       taskId: contract.id,
@@ -84,24 +83,52 @@ test("worker prompt rejects lexical escapes and symlinks whose real path leaves 
       workspace: location(root),
     };
 
-    await assert.rejects(
-      buildWorkerPrompt({
-        ...base,
-        contract: { ...contract, requiredContext: ["../outside.md"], relevantAdrs: [] },
-      }),
-      /project-relative/u,
-    );
-    await assert.rejects(
-      buildWorkerPrompt({
-        ...base,
-        contract: { ...contract, requiredContext: ["docs/escape.md"], relevantAdrs: [] },
-      }),
-      /escapes the worktree/u,
-    );
+    await t.test("lexical escape", async () => {
+      await assert.rejects(
+        buildWorkerPrompt({
+          ...base,
+          contract: { ...contract, requiredContext: ["../outside.md"], relevantAdrs: [] },
+        }),
+        /project-relative/u,
+      );
+    });
+
+    await t.test("symlink whose real path leaves the worktree", async (t) => {
+      if (!(await symlinkCreationIsPermitted())) {
+        // Unprivileged symlink creation on Windows needs Developer Mode or an
+        // elevated process; the lexical half above still runs everywhere.
+        t.skip(
+          "creating a symlink requires Windows Developer Mode or an administrator process",
+        );
+        return;
+      }
+      await symlink(outside, join(root, "docs", "escape.md"));
+      await assert.rejects(
+        buildWorkerPrompt({
+          ...base,
+          contract: { ...contract, requiredContext: ["docs/escape.md"], relevantAdrs: [] },
+        }),
+        /escapes the worktree/u,
+      );
+    });
   } finally {
     await rm(parent, { recursive: true, force: true });
   }
 });
+
+/** Probes the real capability instead of inferring it from the platform. */
+async function symlinkCreationIsPermitted(): Promise<boolean> {
+  const probe = await mkdtemp(join(tmpdir(), "draftforge-symlink-probe-"));
+  try {
+    await writeFile(join(probe, "target"), "target", "utf8");
+    await symlink(join(probe, "target"), join(probe, "link"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(probe, { recursive: true, force: true });
+  }
+}
 
 function location(root: string): WorkspaceLocation {
   return {

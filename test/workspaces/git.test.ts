@@ -15,7 +15,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { after, test, type TestContext } from "node:test";
 import type { WorkspaceAttempt } from "../../src/application/workspace.js";
@@ -155,7 +155,10 @@ test("create-or-recover is deterministic, idempotent, and discovers setup interr
   assert.equal(first.branch, workspaceBranch(ATTEMPT));
   assert.match(first.baseCommit, /^[0-9a-f]{40}$/u);
   assert.deepEqual(second, first);
-  assert.equal(git(repository, ["worktree", "list", "--porcelain"]).includes(first.path), true);
+  assert.ok(
+    (await registeredWorktreePaths(repository)).includes(await comparablePath(first.path)),
+    "the deterministic workspace path is registered as a Git worktree",
+  );
   assert.equal(git(first.path, ["config", "--worktree", "--get", "draftforge.attempt-id"]).trim(), ATTEMPT.attemptId);
 
   git(first.path, ["config", "--worktree", "--unset-all", "draftforge.attempt-id"]);
@@ -342,8 +345,17 @@ test("Git inspection never executes configured fsmonitor or hook commands", asyn
     await writeExecutableMarkerHook(hook, marker);
     git(location.path, ["config", "--worktree", "core.fsmonitor", hook]);
     git(location.path, ["ls-files", "-v"]);
-    assert.equal(await readFile(marker, "utf8"), "invoked\n");
-    await rm(marker);
+    // Whether plain Git actually runs the configured hook is the attack
+    // precondition, not the DraftForge behaviour. Git 2.54.0.windows.1 does
+    // not invoke it, so a missing marker here proves nothing either way and
+    // the defense below is still asserted unconditionally.
+    if ((await readOptionalFile(marker)) === "invoked\n") {
+      await rm(marker);
+    } else {
+      t.diagnostic(
+        "installed Git did not invoke the configured core.fsmonitor hook; asserting the DraftForge defense only",
+      );
+    }
 
     const inspection = await workspace.inspect(ATTEMPT, location.baseCommit);
     assert.equal(inspection.state, "unsafe");
@@ -449,6 +461,40 @@ test("trusted stat settings expose chmod and restored-mtime changes", async (t) 
     await utimes(path, cached.atime, cached.mtime);
     assert.equal(await readFile(path, "utf8"), "after!\n");
     assert.equal((await stat(path)).mtimeMs, cached.mtimeMs);
+
+    assert.deepEqual(
+      await workspace.changedPaths(ATTEMPT, location.baseCommit),
+      ["clock.txt"],
+    );
+  });
+
+  await t.test("a same-size restored-mtime rewrite survives a warm stat cache", async (t) => {
+    const repository = await createRepository(t, { "clock.txt": "before\n" });
+    const workspace = new GitWorkspace({ projectRoot: repository });
+    const location = await workspace.createOrRecover(ATTEMPT);
+    const path = join(location.path, "clock.txt");
+    // The index must record the exact millisecond-precision timestamp that is
+    // restored later, otherwise the entry is stat-dirty for an unrelated
+    // reason and Git re-hashes it by accident rather than by design.
+    const settled = new Date("2001-01-01T00:00:00.000Z");
+    await utimes(path, settled, settled);
+    git(location.path, ["update-index", "--refresh"]);
+    const cached = await stat(path);
+    // No worker-supplied configuration is involved here. Git for Windows has
+    // no dependable ctime, so an index whose stat cache is warm considers an
+    // equal-size file with an unchanged mtime clean and never re-hashes it.
+    // Detection must therefore come from content, not from the stat cache.
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_100));
+    await writeFile(path, "after!\n", "utf8");
+    await utimes(path, cached.atime, cached.mtime);
+    assert.equal((await stat(path)).size, cached.size);
+    assert.equal(await readFile(path, "utf8"), "after!\n");
+    if (git(location.path, ["diff", "--name-only", location.baseCommit]).trim() === "") {
+      // Only platforms without a dependable ctime reach this state; elsewhere
+      // the stat-cached diff already exposes the rewrite. Either way the
+      // content-derived result below must be identical.
+      t.diagnostic("the worker-visible stat-cached diff hides the same-size rewrite here");
+    }
 
     assert.deepEqual(
       await workspace.changedPaths(ATTEMPT, location.baseCommit),
@@ -734,7 +780,25 @@ test("Git literal backslash filenames are rejected instead of normalized into ow
   const repository = await createRepository(t);
   const workspace = new GitWorkspace({ projectRoot: repository });
   const location = await workspace.createOrRecover(ATTEMPT);
-  await writeFile(join(location.path, "src\\worker.ts"), "spoof\n", "utf8");
+  // Windows treats "\" as a separator, so the entry is created through Git
+  // plumbing: the literal name then exists only inside the index, which is
+  // exactly the surface the path parser has to reject on every platform.
+  const blob = git(location.path, ["rev-parse", `${location.baseCommit}:README.md`]).trim();
+  git(location.path, [
+    // Only this hostile setup step relaxes the Windows path guard; the
+    // DraftForge inspection under test still runs with its own trusted flags.
+    "-c",
+    "core.protectNTFS=false",
+    "update-index",
+    "--add",
+    "--cacheinfo",
+    `100644,${blob},src\\worker.ts`,
+  ]);
+  assert.equal(
+    git(location.path, ["ls-files", "-z"]).includes("src\\worker.ts\0"),
+    true,
+    "Git holds the literal backslash path in the index",
+  );
 
   const inspection = await workspace.inspect(ATTEMPT, location.baseCommit);
   assert.equal(inspection.state, "unsafe");
@@ -804,6 +868,24 @@ test("Git path normalization rejects traversal, absolute paths, and literal back
   assert.throws(() => normalizeRepositoryPath("/outside.ts"), WorkspaceError);
 });
 
+/** Parses `git worktree list --porcelain` instead of substring matching. */
+async function registeredWorktreePaths(repository: string): Promise<readonly string[]> {
+  const listed = git(repository, ["worktree", "list", "--porcelain"])
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => line.slice("worktree ".length));
+  return Promise.all(listed.map(comparablePath));
+}
+
+/**
+ * Git reports POSIX separators and may report a different drive-letter case
+ * than Node produced, so paths are compared canonically rather than literally.
+ */
+async function comparablePath(value: string): Promise<string> {
+  const real = await realpath(resolve(value));
+  return process.platform === "win32" ? real.toLowerCase() : real;
+}
+
 function livenessTransport(liveness: "alive" | "not-found" | "unknown"): GitProcessTransport {
   const transport = createGitProcessTransport({ liveness: () => liveness });
   return transport;
@@ -851,6 +933,14 @@ async function writeExecutablePassthroughFilter(path: string, marker: string): P
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+async function readOptionalFile(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return undefined;
+  }
 }
 
 async function assertFileMissing(path: string): Promise<void> {
