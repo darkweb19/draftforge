@@ -245,6 +245,9 @@
       "Run the deterministic Phase 4 sample gate through the built CLI, then update canonical state and SESSION.md only after independent QA accepts the implementation."
     ],
     "gotchas": [
+      "Workspace scope enforcement must stay content-derived: tracked changes come from a scratch index (no stat cache) unioned with a `--cached` diff. Reverting to a plain `git diff <base>` silently reopens a Windows hole where a same-size, restored-mtime rewrite is invisible; test/workspaces/git.test.ts guards it.",
+      "Changed paths now include a staged change whose worktree edit was reverted. This over-reporting is deliberate and safe; do not 'fix' it by dropping the `--cached` diff.",
+      "P04-T01..T03 were recorded as done with a fully green run, but that same commit failed 7 tests on this Windows machine (symlink EPERM without Developer Mode, Git 2.54 fsmonitor behavior, and one real defect). Treat recorded green evidence as environment-specific unless re-run locally.",
       "`templates/schema/*.json` must stay byte-identical to `.draftforge/schema/*.json`; test/templates.test.ts enforces it.",
       "P04-T01 adds a shipped execution schema and changes state/planning contracts; runtime validators, migrations, fixtures, and template copies must move together.",
       "P04-T01 and P04-T02 are intentionally path-disjoint and ready together. Canonical state, SESSION.md, and `.draftforge/runs/` are lead/scheduler control paths, not worker-owned paths.",

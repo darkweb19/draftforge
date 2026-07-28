@@ -76,3 +76,15 @@ success and unsafe file application.
 - API-backed architect and reviewer calls remain supported, but API-backed
   workers fail with an actionable capability error until a safe mutation
   protocol is designed.
+- Scope enforcement requires a *content-derived* diff, not merely "the Git
+  diff". `git diff` consults the index stat cache, and Git for Windows has no
+  dependable ctime, so `core.trustctime=true` degrades to an mtime plus size
+  comparison there: a same-size rewrite with a restored mtime was invisible.
+  Tracked changes are therefore read through a private scratch index that
+  carries no stat data, forcing Git to hash real bytes. This invariant was
+  stated here before the implementation delivered it on Windows; a regression
+  test now guards it.
+- The scratch-index worktree diff is unioned with a `--cached` diff of the
+  worker's own index, because a staged addition exists only there. Changed
+  paths consequently include a staged change whose worktree edit was reverted.
+  That over-reports rather than under-reports, which is the safe direction.
