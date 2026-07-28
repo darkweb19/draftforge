@@ -4,10 +4,10 @@
 
 ## What was done
 
-- P04-T04 is implemented and sits at review pending acceptance. `draftforge run` and `draftforge resume` now reconcile durable attempts, claim to worker capacity under short locks, dispatch non-conflicting tasks concurrently without holding the lock across worktree or model work, and finalize a persisted result without a second model call. Worker success advances only to review; failure lands on blocked with redacted evidence. Two problems were found and fixed before this task: the repository's Phase 4 work lived on origin/main under a different architecture than the local feat/p04-planning branch (ADR 0010 and its P04 contracts were discarded in favour of ADR 0009 durable attempts), and that adopted tree failed 7 tests on Windows despite recorded green evidence. Six of those were test-portability defects; one was real - `git diff` trusts the index stat cache, and Git for Windows has no dependable ctime, so a same-size rewrite with a restored mtime was invisible to scope enforcement. Tracked changes are now derived through a stat-free scratch index. Typecheck, lint, 247 tests (240 pass, 7 environment skips), session check, and build pass; the built CLI was exercised directly for both refusals, reconciliation to review, blocked dispatch, and idempotent resume.
-- Current position: phase-04 — Delegated execution; stage execution; status in_progress.
-- Current task: P04-T04. Next task: None.
-- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01, P03-T02, P03-T03, P03-T04, P04-T01, P04-T02, P04-T03.
+- Phase 4 is closed. P04-T04 is accepted and every Phase 4 task is done. `draftforge run` and `draftforge resume` now reconcile durable attempts, claim to worker capacity under short locks, dispatch non-conflicting tasks concurrently without holding the lock across worktree or model work, and finalize a persisted result without a second model call. Worker success advances only to review; failure lands on blocked with redacted evidence. Two problems were found and fixed before this task: the repository's Phase 4 work lived on origin/main under a different architecture than the local feat/p04-planning branch (ADR 0010 and its P04 contracts were discarded in favour of ADR 0009 durable attempts), and that adopted tree failed 7 tests on Windows despite recorded green evidence. Six of those were test-portability defects; one was real - `git diff` trusts the index stat cache, and Git for Windows has no dependable ctime, so a same-size rewrite with a restored mtime was invisible to scope enforcement. Tracked changes are now derived through a stat-free scratch index. Typecheck, lint, 247 tests (240 pass, 7 environment skips), session check, and build pass; the built CLI was exercised directly for both refusals, reconciliation to review, blocked dispatch, and idempotent resume. Phase 4 was closed on the user's explicit instruction with two caveats recorded rather than resolved: the exit gate's parallel-dispatch proof rests on deterministic fake runners because a real multi-task CLI dispatch needs an installed codex-cli or claude-cli, and two architectural debts (a project lock that refuses contention instead of waiting, and a resume-time manifest rewind) are carried into Phase 5.
+- Current position: phase-04 — Delegated execution; stage complete; status complete.
+- Current task: None. Next task: None.
+- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01, P03-T02, P03-T03, P03-T04, P04-T01, P04-T02, P04-T03, P04-T04.
 
 ## Decisions locked
 
@@ -47,11 +47,11 @@ None
 
 ## Next steps
 
-1. Accept or reject P04-T04, which sits at review after independent lead verification (npm run check green at 247/240/0/7; built CLI exercised directly for both refusals, reconciliation, blocked dispatch, and idempotent resume).
-2. Decide whether Phase 4's exit gate is satisfied. Parallel dispatch, ownership conflict, dependency blocking, and resume are proven by deterministic fake-runner tests; the built CLI was not driven through a successful multi-task parallel dispatch because that needs a real codex-cli or claude-cli.
-3. Schedule the project-lock follow-up: withProjectLock throws on contention instead of waiting, so cross-process concurrent runs can still collide. DispatchGate in src/application/execution.ts only serializes locked phases within one process.
-4. Decide whether executeClaimedWorker should accept a running manifest directly, removing the resume-time manifest rewind in src/application/execution.ts.
-5. Re-verify P04-T01..T03 acceptance evidence, which recorded a green run for a commit that failed 7 tests on this machine.
+1. Open Phase 5 (Review and recovery): reviewer role, verification commands, bounded repair loops, diff checks, secret scanning, failure classification, rollback guidance, and cost/token accounting.
+2. Carry into Phase 5: make the project lock wait or bounded-retry instead of refusing contention, then delete DispatchGate from src/application/execution.ts. Until then, only one `draftforge run` process is safe at a time.
+3. Carry into Phase 5: decide whether executeClaimedWorker should accept a `running` manifest directly, removing the resume-time manifest rewind.
+4. Carry into Phase 5: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli. Phase 4 proved this with deterministic fake runners only.
+5. Carry into Phase 5: re-verify P04-T01..T03 acceptance evidence, which recorded a green run for a commit that failed 7 tests on this machine.
 
 ## Gotchas
 
