@@ -10,8 +10,8 @@
     "phaseName": "Delegated execution",
     "stage": "execution",
     "status": "in_progress",
-    "currentTask": null,
-    "nextTask": "P04-T04"
+    "currentTask": "P04-T04",
+    "nextTask": null
   },
   "phases": [
     {
@@ -184,7 +184,7 @@
     {
       "id": "P04-T04",
       "title": "Concurrent run orchestration, resume, and Phase 4 gate",
-      "status": "ready",
+      "status": "review",
       "taskFile": ".draftforge/tasks/P04-T04.md",
       "dependsOn": [
         "P04-T03"
@@ -204,9 +204,9 @@
     "docs/decisions/0009-durable-execution-attempts.md"
   ],
   "handoff": {
-    "updatedAt": "2026-07-26T20:02:43.000-04:00",
-    "updatedBy": "codex",
-    "summary": "P04-T03 is complete after bounded implementation, adversarial repair, and independent QA acceptance. DraftForge now preflights workspace-capable worker routes before claim, builds boundary-checked least-context prompts, invokes local harnesses once in deterministic worktrees, validates strict result envelopes, persists redacted evidence before transition, and advances workers only to review or blocked. Authoritative Git inspection now distrusts mutable index, exclusion, history, filter, hook, stat, line-ending, and worktree controls; tracked submodules fail closed, while uncertain process termination preserves the active attempt for explicit resume. Typecheck, lint, all 211 tests (206 pass, 5 expected skips), session check, and build pass. P04-T04 is ready.",
+    "updatedAt": "2026-07-28T18:10:00.000Z",
+    "updatedBy": "claude",
+    "summary": "P04-T04 is implemented and sits at review pending acceptance. `draftforge run` and `draftforge resume` now reconcile durable attempts, claim to worker capacity under short locks, dispatch non-conflicting tasks concurrently without holding the lock across worktree or model work, and finalize a persisted result without a second model call. Worker success advances only to review; failure lands on blocked with redacted evidence. Two problems were found and fixed before this task: the repository's Phase 4 work lived on origin/main under a different architecture than the local feat/p04-planning branch (ADR 0010 and its P04 contracts were discarded in favour of ADR 0009 durable attempts), and that adopted tree failed 7 tests on Windows despite recorded green evidence. Six of those were test-portability defects; one was real - `git diff` trusts the index stat cache, and Git for Windows has no dependable ctime, so a same-size rewrite with a restored mtime was invisible to scope enforcement. Tracked changes are now derived through a stat-free scratch index. Typecheck, lint, 247 tests (240 pass, 7 environment skips), session check, and build pass; the built CLI was exercised directly for both refusals, reconciliation to review, blocked dispatch, and idempotent resume.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
@@ -241,10 +241,17 @@
     "openQuestions": [],
     "blockers": [],
     "nextActions": [
-      "Execute P04-T04 through a bounded code-builder: wire concurrent run/resume orchestration, reconcile durable crash points, and expose actionable CLI outcomes.",
-      "Run the deterministic Phase 4 sample gate through the built CLI, then update canonical state and SESSION.md only after independent QA accepts the implementation."
+      "Accept or reject P04-T04, which sits at review after independent lead verification (npm run check green at 247/240/0/7; built CLI exercised directly for both refusals, reconciliation, blocked dispatch, and idempotent resume).",
+      "Decide whether Phase 4's exit gate is satisfied. Parallel dispatch, ownership conflict, dependency blocking, and resume are proven by deterministic fake-runner tests; the built CLI was not driven through a successful multi-task parallel dispatch because that needs a real codex-cli or claude-cli.",
+      "Schedule the project-lock follow-up: withProjectLock throws on contention instead of waiting, so cross-process concurrent runs can still collide. DispatchGate in src/application/execution.ts only serializes locked phases within one process.",
+      "Decide whether executeClaimedWorker should accept a running manifest directly, removing the resume-time manifest rewind in src/application/execution.ts.",
+      "Re-verify P04-T01..T03 acceptance evidence, which recorded a green run for a commit that failed 7 tests on this machine."
     ],
     "gotchas": [
+      "`withProjectLock` refuses contention instead of waiting. `DispatchGate` in src/application/execution.ts works around this in-process by releasing the gate at the model call and re-acquiring after; two concurrent `draftforge run` processes can still collide. Fix the lock, then delete the gate.",
+      "Resume rewinds an interrupted attempt manifest to lifecycle `claimed` with `baseCommit: null` because `assertClaimStillCurrent` in src/application/worker.ts requires that shape on entry. Same attempt id, same worktree. Changing the seam to accept a `running` manifest would remove the rewind.",
+      "`run` reports an interrupted attempt as in-flight and leaves it alone; only `resume` re-dispatches it. This reading of the P04-T04 contract is documented in README and docs/PROTOCOL.md.",
+      "Execution fixtures are a deterministic builder (`node --import tsx test/fixtures/execution/project.ts <variant> <dir>`, variants unapproved/api-worker/deferred/resumable/no-work), not committed static directories.",
       "Workspace scope enforcement must stay content-derived: tracked changes come from a scratch index (no stat cache) unioned with a `--cached` diff. Reverting to a plain `git diff <base>` silently reopens a Windows hole where a same-size, restored-mtime rewrite is invisible; test/workspaces/git.test.ts guards it.",
       "Changed paths now include a staged change whose worktree edit was reverted. This over-reporting is deliberate and safe; do not 'fix' it by dropping the `--cached` diff.",
       "P04-T01..T03 were recorded as done with a fully green run, but that same commit failed 7 tests on this Windows machine (symlink EPERM without Developer Mode, Git 2.54 fsmonitor behavior, and one real defect). Treat recorded green evidence as environment-specific unless re-run locally.",
