@@ -6,6 +6,16 @@ const LOCK_PATH = ".draftforge/state.lock";
 const RECOVERY_LOCK_PATH = ".draftforge/state.lock.recovery";
 const INCOMPLETE_LOCK_GRACE_MS = 30_000;
 
+/** Total time a caller waits for a held lock before giving up. */
+export const DEFAULT_LOCK_WAIT_TIMEOUT_MS = 30_000;
+/** Base delay between acquisition retries; jitter is added on top. */
+export const DEFAULT_LOCK_POLL_INTERVAL_MS = 25;
+
+export interface ProjectLockWaitOptions {
+  readonly waitTimeoutMs?: number;
+  readonly pollIntervalMs?: number;
+}
+
 interface ProjectLock {
   readonly handle: FileHandle;
   readonly path: string;
@@ -23,12 +33,20 @@ interface LockInspection {
   readonly stale: boolean;
 }
 
+/**
+ * Signals that acquisition hit transient contention (a live holder or an
+ * in-progress recovery) rather than a hard failure. The acquisition loop
+ * catches this and retries until the wait budget is exhausted.
+ */
+class RetryableLockContention extends Error {}
+
 export async function withProjectLock<T>(
   root: string,
   operation: string,
   run: () => Promise<T>,
+  options?: ProjectLockWaitOptions,
 ): Promise<T> {
-  const lock = await acquireProjectLock(root, operation);
+  const lock = await acquireProjectLock(root, operation, options);
   try {
     return await run();
   } finally {
@@ -37,9 +55,39 @@ export async function withProjectLock<T>(
   }
 }
 
-async function acquireProjectLock(root: string, operation: string): Promise<ProjectLock> {
+async function acquireProjectLock(
+  root: string,
+  operation: string,
+  options?: ProjectLockWaitOptions,
+): Promise<ProjectLock> {
+  const waitTimeoutMs = options?.waitTimeoutMs ?? DEFAULT_LOCK_WAIT_TIMEOUT_MS;
+  const pollIntervalMs = options?.pollIntervalMs ?? DEFAULT_LOCK_POLL_INTERVAL_MS;
   const lockPath = resolve(root, LOCK_PATH);
   const recoveryPath = resolve(root, RECOVERY_LOCK_PATH);
+  // Computed once at entry so retries share one budget rather than each
+  // waiting the full timeout in sequence.
+  const deadline = Date.now() + waitTimeoutMs;
+
+  for (;;) {
+    try {
+      return await tryAcquireProjectLock(lockPath, recoveryPath, operation);
+    } catch (error: unknown) {
+      if (!(error instanceof RetryableLockContention)) {
+        throw error;
+      }
+      if (Date.now() >= deadline) {
+        throw timeoutError(operation, waitTimeoutMs);
+      }
+      await sleep(jitteredDelay(pollIntervalMs));
+    }
+  }
+}
+
+async function tryAcquireProjectLock(
+  lockPath: string,
+  recoveryPath: string,
+  operation: string,
+): Promise<ProjectLock> {
   await assertNoRecoveryInProgress(recoveryPath);
 
   try {
@@ -55,7 +103,7 @@ async function acquireProjectLock(root: string, operation: string): Promise<Proj
     return createLock(lockPath, operation);
   }
   if (!inspection.stale) {
-    throw busyError();
+    throw new RetryableLockContention();
   }
   return recoverStaleLock(lockPath, recoveryPath, inspection.raw, operation);
 }
@@ -71,9 +119,9 @@ async function recoverStaleLock(
     recovery = await open(recoveryPath, "wx");
   } catch (error: unknown) {
     if (hasErrorCode(error, "EEXIST")) {
-      throw new Error(
-        `Project lock recovery is already in progress. If no DraftForge process is running, remove ${RECOVERY_LOCK_PATH}.`,
-      );
+      // Same condition assertNoRecoveryInProgress treats as retryable: another
+      // process is mid-recovery and will release shortly.
+      throw new RetryableLockContention();
     }
     throw error;
   }
@@ -90,7 +138,9 @@ async function recoverStaleLock(
       return await createLock(lockPath, operation);
     }
     if (!current.stale || current.raw !== expectedRaw) {
-      throw busyError();
+      // Another process legitimately holds the lock now. Under the waiting
+      // contract that is contention to wait out, not a refusal.
+      throw new RetryableLockContention();
     }
 
     await rename(lockPath, quarantine);
@@ -103,7 +153,8 @@ async function recoverStaleLock(
       return await createLock(lockPath, operation);
     } catch (error: unknown) {
       if (hasErrorCode(error, "EEXIST")) {
-        throw busyError();
+        // Lost the post-quarantine race to another acquirer; wait it out.
+        throw new RetryableLockContention();
       }
       throw error;
     }
@@ -163,13 +214,19 @@ async function inspectLock(path: string): Promise<LockInspection | null> {
   }
 }
 
+/**
+ * A recovery in progress is transient: the process holding it either
+ * completes the quarantine dance or its own stale-lock detection eventually
+ * reclaims it. Signal retryable contention rather than failing outright.
+ */
 async function assertNoRecoveryInProgress(path: string): Promise<void> {
   try {
     await stat(path);
-    throw new Error(
-      `Project lock recovery is already in progress. If no DraftForge process is running, remove ${RECOVERY_LOCK_PATH}.`,
-    );
+    throw new RetryableLockContention();
   } catch (error: unknown) {
+    if (error instanceof RetryableLockContention) {
+      throw error;
+    }
     if (hasErrorCode(error, "ENOENT")) {
       return;
     }
@@ -215,8 +272,20 @@ function isLockRecord(value: unknown): value is LockRecord {
   );
 }
 
-function busyError(): Error {
-  return new Error("Another state transition is already in progress; retry after it completes.");
+function timeoutError(operation: string, waitTimeoutMs: number): Error {
+  return new Error(
+    `Timed out after ${waitTimeoutMs}ms waiting for the project lock (operation: ${operation}). Another DraftForge process is holding it.`,
+  );
+}
+
+function jitteredDelay(pollIntervalMs: number): number {
+  return pollIntervalMs + Math.random() * pollIntervalMs;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolveSleep) => {
+    setTimeout(resolveSleep, ms);
+  });
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {

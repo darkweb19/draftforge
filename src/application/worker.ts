@@ -145,7 +145,23 @@ export async function executeClaimedWorker(
     taskId: input.claimed.task.id,
     attemptId: reference.attemptId,
   };
-  await assertClaimStillCurrent(input.root, input.claimed, "claimed", null);
+  // The seam accepts either a fresh claim (no base commit yet) or a resumed
+  // running attempt (a base commit already recorded from before the crash).
+  // Anything else cannot safely start a worker.
+  const initialLifecycle = input.claimed.manifest.lifecycle;
+  const initialBaseCommit = input.claimed.manifest.baseCommit;
+  if (initialLifecycle === "claimed") {
+    if (initialBaseCommit !== null) {
+      throw new Error("Worker execution requires a freshly claimed attempt manifest to carry no base commit.");
+    }
+  } else if (initialLifecycle === "running") {
+    if (initialBaseCommit === null) {
+      throw new Error("Worker execution requires a resumed running attempt manifest to carry a base commit.");
+    }
+  } else {
+    throw new Error(`Worker execution cannot start from attempt lifecycle: ${initialLifecycle}.`);
+  }
+  await assertClaimStillCurrent(input.root, input.claimed, initialLifecycle, initialBaseCommit);
 
   let location: WorkspaceLocation | undefined;
   let result: WorkerResult | null = null;
@@ -158,6 +174,14 @@ export async function executeClaimedWorker(
 
   try {
     location = await input.workspace.createOrRecover(workspaceAttempt);
+    if (initialLifecycle === "running" && location.baseCommit !== initialBaseCommit) {
+      // A resumed attempt trusts its recorded base commit; a mismatch means the
+      // recovered workspace is not the one this attempt was claimed against, so
+      // this is a hard error rather than a silent overwrite.
+      throw new Error(
+        `Recovered workspace base commit does not match the attempt's recorded base commit: expected ${initialBaseCommit ?? "null"}, found ${location.baseCommit}.`,
+      );
+    }
     stage = "attempt-manifest-update";
     const runningManifest = await updateExecutionAttemptManifest(input.root, reference, {
       lifecycle: "running",

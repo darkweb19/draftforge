@@ -7,10 +7,13 @@ const ALLOWED_TRANSITIONS = {
   backlog: ["ready"],
   ready: ["active"],
   active: ["review", "blocked"],
-  review: ["done", "blocked"],
-  blocked: [],
+  review: ["done", "blocked", "active"],
+  blocked: ["ready"],
   done: [],
 } as const satisfies Record<TaskStatus, readonly TaskStatus[]>;
+
+/** Automation performs every transition except a `blocked -> ready` reopen. */
+export type ActorKind = "automation" | "human";
 
 export interface TaskTransitionInput {
   readonly taskId: string;
@@ -19,9 +22,15 @@ export interface TaskTransitionInput {
   readonly actor: string;
   readonly now?: Date;
   readonly metadata?: Readonly<Record<string, unknown>>;
+  readonly actorKind?: ActorKind;
 }
 
-export function transitionTask(state: ProjectState, taskId: string, to: TaskStatus): ProjectState {
+export function transitionTask(
+  state: ProjectState,
+  taskId: string,
+  to: TaskStatus,
+  actorKind: ActorKind = "automation",
+): ProjectState {
   const task = state.tasks.find((candidate) => candidate.id === taskId);
   if (task === undefined) {
     throw new Error(`Unknown task: ${taskId}.`);
@@ -30,6 +39,12 @@ export function transitionTask(state: ProjectState, taskId: string, to: TaskStat
   const allowed = ALLOWED_TRANSITIONS[task.status] as readonly TaskStatus[];
   if (!allowed.includes(to)) {
     throw new Error(`Illegal task transition for ${taskId}: ${task.status} -> ${to}.`);
+  }
+
+  if (task.status === "blocked" && to === "ready" && actorKind !== "human") {
+    throw new Error(
+      `${taskId} cannot reopen from blocked to ready by automation; this reopen must be performed by a human or architect action.`,
+    );
   }
 
   if (to === "ready") {
@@ -47,7 +62,7 @@ export function transitionTask(state: ProjectState, taskId: string, to: TaskStat
 
   return {
     ...state,
-    workflow: transitionWorkflow(state, taskId, to, tasks),
+    workflow: transitionWorkflow(state, taskId, task.status, to, tasks),
     tasks,
   };
 }
@@ -60,7 +75,8 @@ export async function applyTaskTransition(root: string, input: TaskTransitionInp
       throw new Error(`Unknown task: ${input.taskId}.`);
     }
 
-    const next = transitionTask(state, input.taskId, input.to);
+    const actorKind: ActorKind = input.actorKind ?? "automation";
+    const next = transitionTask(state, input.taskId, input.to, actorKind);
     const now = input.now ?? new Date();
     if (Number.isNaN(now.getTime())) {
       throw new Error("Transition timestamp must be a valid date.");
@@ -78,6 +94,7 @@ export async function applyTaskTransition(root: string, input: TaskTransitionInp
         from: previous.status,
         to: input.to,
         actor: input.actor,
+        actorKind,
         ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
       },
     };
@@ -92,10 +109,21 @@ export async function applyTaskTransition(root: string, input: TaskTransitionInp
 function transitionWorkflow(
   state: ProjectState,
   taskId: string,
+  from: TaskStatus,
   to: TaskStatus,
   tasks: readonly TaskState[],
 ): ProjectState["workflow"] {
   if (to === "ready") {
+    if (from === "blocked") {
+      // A reopen resumes the project and misreports nothing as blocked; leaving
+      // the reopened task recorded as `currentTask` would misreport progress.
+      return {
+        ...state.workflow,
+        status: "in_progress",
+        currentTask: state.workflow.currentTask === taskId ? null : state.workflow.currentTask,
+        nextTask: state.workflow.nextTask ?? taskId,
+      };
+    }
     return { ...state.workflow, nextTask: state.workflow.nextTask ?? taskId };
   }
   if (to === "active") {

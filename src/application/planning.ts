@@ -414,6 +414,7 @@ function materializeApprovedPlan(
       taskFile: `.draftforge/tasks/${task.id}.md`,
       dependsOn: task.dependsOn,
       attempt: reopened.has(task.id) ? null : (previous?.attempt ?? null),
+      review: reopened.has(task.id) ? null : (previous?.review ?? null),
     };
   });
 

@@ -11,6 +11,7 @@ import { attemptEventPath, readExecutionAttemptManifest } from "../src/state/exe
 import { readProjectState } from "../src/state/files.js";
 import { GitWorkspace } from "../src/workspaces/git.js";
 import {
+  BASE_COMMIT,
   createExecutionProject,
   FakeWorkerRunner,
   FakeWorkspace,
@@ -122,6 +123,32 @@ test("resume tolerates a crash after every durable boundary", async (t) => {
     assert.deepEqual(workspace.createdTasks, []);
     assert.ok(workspace.recoveredTasks.includes("P04-T01"));
     assert.equal(result.summary.records[0]?.status, "review");
+  });
+
+  await t.test("after running with a base commit: resume dispatches directly, without rewinding to claimed", async (inner) => {
+    const root = await seededProject(inner, [ALPHA_ACTIVE], [
+      { taskId: "P04-T01", reference: ATTEMPT, lifecycle: "running", baseCommit: BASE_COMMIT },
+    ]);
+    const workspace = new FakeWorkspace(root);
+    const worktree = workspace.worktreePath({ ...ATTEMPT, taskId: "P04-T01" });
+    await mkdir(worktree, { recursive: true });
+    await writeFile(join(worktree, "AGENTS.md"), "# Agent rules\n", "utf8");
+
+    const result = await runExecution(
+      root,
+      { mode: "resume" },
+      { runner: new FakeWorkerRunner({}), workspace, runId: "run-resume" },
+    );
+
+    assert.equal(result.summary.records[0]?.status, "review");
+    assert.equal(statusOf(await readProjectState(root), "P04-T01"), "review");
+    // The manifest's base commit was never rewound to null and re-derived; it
+    // stayed the recorded value the whole time.
+    const manifest = await readExecutionAttemptManifest(root, ATTEMPT);
+    assert.equal(manifest.baseCommit, BASE_COMMIT);
+    const events = await readFile(resolve(root, attemptEventPath(ATTEMPT)), "utf8");
+    assert.ok(events.includes("worker.attempt.resumed"));
+    assert.ok(events.includes('"previousLifecycle":"running"'));
   });
 
   await t.test("after the first modification: worktree contents survive the resume", async (inner) => {

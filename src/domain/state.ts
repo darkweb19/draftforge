@@ -1,6 +1,11 @@
-import { assertAttemptReference, type AttemptReference } from "./execution.js";
+import {
+  assertAttemptReference,
+  assertFailureClassification,
+  type AttemptReference,
+  type FailureClassification,
+} from "./execution.js";
 
-export const PROJECT_STATE_SCHEMA_VERSION = 2 as const;
+export const PROJECT_STATE_SCHEMA_VERSION = 3 as const;
 
 export type WorkflowStatus = "not_started" | "in_progress" | "blocked" | "complete";
 export type TaskStatus = "backlog" | "ready" | "active" | "blocked" | "review" | "done";
@@ -11,6 +16,13 @@ export interface PhaseState {
   readonly status: WorkflowStatus;
 }
 
+export interface TaskReviewRecord {
+  /** Durable repair counter; bounded by limits.maxRepairAttempts. */
+  readonly repairAttempts: number;
+  readonly lastClassification: FailureClassification | null;
+  readonly lastReviewAttempt: AttemptReference | null;
+}
+
 export interface TaskState {
   readonly id: string;
   readonly title: string;
@@ -19,6 +31,8 @@ export interface TaskState {
   readonly dependsOn: readonly string[];
   /** Durable execution identity; null until the scheduler claims the task. */
   readonly attempt: AttemptReference | null;
+  /** Durable repair/review history; null until the task first reaches review. */
+  readonly review: TaskReviewRecord | null;
 }
 
 export interface ProjectState {
@@ -171,7 +185,7 @@ function assertTasks(value: unknown): ReadonlySet<string> {
     if (!isRecord(task)) {
       throw new Error(`${path} must be an object.`);
     }
-    assertOnlyKeys(task, path, ["id", "title", "status", "taskFile", "dependsOn", "attempt"]);
+    assertOnlyKeys(task, path, ["id", "title", "status", "taskFile", "dependsOn", "attempt", "review"]);
     assertPattern(task.id, `${path}.id`, TASK_ID_PATTERN);
     assertNonEmptyString(task.title, `${path}.title`);
     assertEnum(task.status, `${path}.status`, TASK_STATUSES);
@@ -183,9 +197,31 @@ function assertTasks(value: unknown): ReadonlySet<string> {
     if (task.attempt !== null) {
       assertAttemptReference(task.attempt);
     }
+    if (!("review" in task)) {
+      throw new Error(`${path}.review is required.`);
+    }
+    if (task.review !== null) {
+      assertTaskReviewRecord(task.review, `${path}.review`);
+    }
     assertUniqueId(ids, task.id as string, `${path}.id`);
   }
   return ids;
+}
+
+function assertTaskReviewRecord(value: unknown, path: string): asserts value is TaskReviewRecord {
+  if (!isRecord(value)) {
+    throw new Error(`${path} must be an object or null.`);
+  }
+  assertOnlyKeys(value, path, ["repairAttempts", "lastClassification", "lastReviewAttempt"]);
+  if (!Number.isInteger(value.repairAttempts) || (value.repairAttempts as number) < 0) {
+    throw new Error(`${path}.repairAttempts must be a non-negative integer.`);
+  }
+  if (value.lastClassification !== null) {
+    assertFailureClassification(value.lastClassification, `${path}.lastClassification`);
+  }
+  if (value.lastReviewAttempt !== null) {
+    assertAttemptReference(value.lastReviewAttempt);
+  }
 }
 
 function assertHandoff(value: unknown): void {

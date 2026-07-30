@@ -1,6 +1,6 @@
 {
   "$schema": "./schema/state.schema.json",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "project": {
     "name": "DraftForge",
     "draftFile": "docs/PRODUCT_SPEC.md"
@@ -11,7 +11,7 @@
     "stage": "implementation",
     "status": "in_progress",
     "currentTask": null,
-    "nextTask": "P05-T01"
+    "nextTask": "P05-T02"
   },
   "phases": [
     {
@@ -57,7 +57,8 @@
       "status": "done",
       "taskFile": ".draftforge/tasks/P00-T01.md",
       "dependsOn": [],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P01-T01",
@@ -67,7 +68,8 @@
       "dependsOn": [
         "P00-T01"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P01-T02",
@@ -77,7 +79,8 @@
       "dependsOn": [
         "P01-T01"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P02-T01",
@@ -87,7 +90,8 @@
       "dependsOn": [
         "P01-T02"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P02-T02",
@@ -97,7 +101,8 @@
       "dependsOn": [
         "P02-T01"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P02-T03",
@@ -107,7 +112,8 @@
       "dependsOn": [
         "P02-T02"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P03-T01",
@@ -117,7 +123,8 @@
       "dependsOn": [
         "P02-T03"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P03-T02",
@@ -127,7 +134,8 @@
       "dependsOn": [
         "P03-T01"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P03-T03",
@@ -137,7 +145,8 @@
       "dependsOn": [
         "P03-T01"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P03-T04",
@@ -148,7 +157,8 @@
         "P03-T02",
         "P03-T03"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P04-T01",
@@ -158,7 +168,8 @@
       "dependsOn": [
         "P03-T04"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P04-T02",
@@ -168,7 +179,8 @@
       "dependsOn": [
         "P03-T04"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P04-T03",
@@ -179,7 +191,8 @@
         "P04-T01",
         "P04-T02"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P04-T04",
@@ -189,47 +202,52 @@
       "dependsOn": [
         "P04-T03"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P05-T01",
       "title": "Waiting project lock, recovery state contracts, and repaid Phase 4 debts",
-      "status": "ready",
+      "status": "done",
       "taskFile": ".draftforge/tasks/P05-T01.md",
       "dependsOn": [
         "P04-T04"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P05-T02",
       "title": "Deterministic verification runner and secret scanning",
-      "status": "backlog",
+      "status": "ready",
       "taskFile": ".draftforge/tasks/P05-T02.md",
       "dependsOn": [
         "P05-T01"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P05-T03",
       "title": "Reviewer prompt, verdict envelope, and failure classification",
-      "status": "backlog",
+      "status": "ready",
       "taskFile": ".draftforge/tasks/P05-T03.md",
       "dependsOn": [
         "P05-T01"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P05-T04",
       "title": "Reported usage capture, run ledger, and budget enforcement",
-      "status": "backlog",
+      "status": "ready",
       "taskFile": ".draftforge/tasks/P05-T04.md",
       "dependsOn": [
         "P05-T01"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     },
     {
       "id": "P05-T05",
@@ -241,7 +259,8 @@
         "P05-T03",
         "P05-T04"
       ],
-      "attempt": null
+      "attempt": null,
+      "review": null
     }
   ],
   "decisions": [
@@ -259,7 +278,7 @@
   "handoff": {
     "updatedAt": "2026-07-29T00:00:00.000Z",
     "updatedBy": "claude",
-    "summary": "Phase 5 (Review and recovery) is open and planned; no Phase 5 implementation has started. The full check was re-run on this machine (macOS, not the Windows machine that recorded the Phase 4 evidence) at commit 09a2943 and is green: typecheck, lint, 247 tests with 242 passing and 5 environment skips, session check, and build. That retires the standing doubt about Phase 4's recorded evidence at HEAD. ADR 0010 was then written and Phase 5 decomposed into five task contracts. The central decision is that review is machine-first: DraftForge itself runs the contract's declared verification commands in the attempt worktree, computes the authoritative diff and scope check, and scans for secrets before the reviewer model is called, and a model verdict can reject work that passed but can never accept work that failed. Two further decisions shape the phase. Acceptance now has to integrate: worktrees fork from project HEAD, so if accepted work never lands on the project branch a dependent task's worktree lacks its predecessor's code and the DAG edges stop meaning anything, which makes merge-on-accept a Phase 5 deliverable rather than a Phase 6 nicety, with the pre-merge head recorded as a rollback point and rollback itself left as documented guidance. And usage accounting reports rather than estimates: harness adapters that surface no token counts record an honest unknown that nothing later replaces with a guess. The two Phase 4 debts are repaid as the phase's foundation instead of carried further, so P05-T01 makes the project lock wait, deletes DispatchGate, and lets the worker seam accept a running manifest so resume stops rewinding one. P05-T01 is ready; P05-T02 (verification and secret scanning), P05-T03 (reviewer prompt and verdict), and P05-T04 (usage) are deliberately path-disjoint and become ready together behind it; P05-T05 wires the review command, the bounded repair loop, integration, and the exit gate. Previously Phase 4 was closed. P04-T04 is accepted and every Phase 4 task is done. `draftforge run` and `draftforge resume` now reconcile durable attempts, claim to worker capacity under short locks, dispatch non-conflicting tasks concurrently without holding the lock across worktree or model work, and finalize a persisted result without a second model call. Worker success advances only to review; failure lands on blocked with redacted evidence. Two problems were found and fixed before this task: the repository's Phase 4 work lived on origin/main under a different architecture than the local feat/p04-planning branch (ADR 0010 and its P04 contracts were discarded in favour of ADR 0009 durable attempts), and that adopted tree failed 7 tests on Windows despite recorded green evidence. Six of those were test-portability defects; one was real - `git diff` trusts the index stat cache, and Git for Windows has no dependable ctime, so a same-size rewrite with a restored mtime was invisible to scope enforcement. Tracked changes are now derived through a stat-free scratch index. Typecheck, lint, 247 tests (240 pass, 7 environment skips), session check, and build pass; the built CLI was exercised directly for both refusals, reconciliation to review, blocked dispatch, and idempotent resume. Phase 4 was closed on the user's explicit instruction with two caveats recorded rather than resolved: the exit gate's parallel-dispatch proof rests on deterministic fake runners because a real multi-task CLI dispatch needs an installed codex-cli or claude-cli, and two architectural debts (a project lock that refuses contention instead of waiting, and a resume-time manifest rewind) are carried into Phase 5.",
+    "summary": "Phase 5 (Review and recovery) is in implementation. P05-T01 is done and accepted, so the two Phase 4 debts are repaid rather than carried further. `withProjectLock` now waits on a shared deadline with jittered polling (defaults 30s budget, 25ms interval, both injectable) instead of refusing contention, and every transient condition retries: a live holder, an in-progress recovery, and the three races inside stale-lock recovery. Stale locks are still broken immediately through the unchanged quarantine protocol. DispatchGate is deleted and dispatch calls the runner directly. The worker seam accepts either a fresh `claimed` manifest with no base commit or a resumed `running` manifest with one, cross-checking the recorded base commit against the recovered workspace and failing hard on disagreement, so resume no longer rewinds a manifest; `rewindAttempt` became `confirmResumeOwnership`, keeping the locked ownership re-check and the durable `worker.attempt.resumed` evidence. The transition graph gained exactly two edges, `review -> active` and an actor-recorded `blocked -> ready` reopen that automation cannot perform. Canonical state is schema 3 with a migration from both 1 and 2; TaskState carries a nullable review record holding the repair counter, last classification, and last review attempt. The attempt manifest gained the verifying/reviewing/repairing/integrated lifecycles plus optional verification, scan, verdict, usage, and integration sections, all strictly validated when present, so existing Phase 4 manifests still validate. Review of the delegated implementation caught one real defect: three paths inside `recoverStaleLock` still threw a hard refusal on what is transient contention, including the recovery-lock EEXIST case that the sibling code path already treated as retryable. That is fixed and pinned by a test proving two concurrent acquirers of one stale lock both succeed by waiting; the test was confirmed to fail against the pre-fix code. Verified green on macOS: typecheck, lint, 283 tests with 278 passing and 5 environment skips, session check, and build. P05-T02 (verification and secret scanning), P05-T03 (reviewer prompt and verdict), and P05-T04 (usage accounting) are now ready together and path-disjoint; P05-T05 then wires the review command, the bounded repair loop, integration, and the exit gate. One decomposition gap was found and resolved without a contract change: no Phase 5 task owns src/application/workspace.ts, but secret scanning needs diff text while WorkspacePort exposes only changedPaths, so P05-T02 defines its own injected diff input in src/domain/verification.ts and P05-T05 supplies it from src/workspaces/git.ts.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
@@ -303,14 +322,18 @@
     "openQuestions": [],
     "blockers": [],
     "nextActions": [
-      "Implement P05-T01 (ready): waiting project lock, DispatchGate deletion, review -> active plus recorded blocked -> ready edges, state schema 3 with migration from 1 and 2, extended attempt manifest, and a worker seam that accepts a running manifest.",
-      "After P05-T01 is accepted, dispatch P05-T02, P05-T03, and P05-T04 together; they are path-disjoint by design and P05-T04 is the only one touching src/providers/.",
+      "Dispatch P05-T02, P05-T03, and P05-T04 together; they are ready and path-disjoint, and P05-T04 is the only one touching src/providers/.",
+      "P05-T02 must define its own injected diff input (changed paths plus patch text) in src/domain/verification.ts; WorkspacePort has no diff-text method and no Phase 5 task owns src/application/workspace.ts.",
+      "After the three parallel tasks are accepted, implement P05-T05: review command, bounded repair loop, integration with a recorded rollback point, injected-failure fixtures, and the Phase 5 exit gate through the built CLI.",
       "Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli. Phase 4 proved this with deterministic fake runners only, and no harness is installed in this shell.",
       "During P05-T05, confirm that a dependent task's worktree base commit actually contains its integrated predecessor's work; that is the check that proves integration closed the DAG gap."
     ],
     "gotchas": [
-      "`withProjectLock` refuses contention instead of waiting. `DispatchGate` in src/application/execution.ts works around this in-process by releasing the gate at the model call and re-acquiring after; two concurrent `draftforge run` processes can still collide. Fix the lock, then delete the gate.",
-      "Resume rewinds an interrupted attempt manifest to lifecycle `claimed` with `baseCommit: null` because `assertClaimStillCurrent` in src/application/worker.ts requires that shape on entry. Same attempt id, same worktree. Changing the seam to accept a `running` manifest would remove the rewind.",
+      "`withProjectLock` now waits rather than refusing: one deadline is computed at entry (DEFAULT_LOCK_WAIT_TIMEOUT_MS 30s, DEFAULT_LOCK_POLL_INTERVAL_MS 25ms, both overridable per call) and every transient condition retries via the internal RetryableLockContention signal. Stale locks are still broken immediately. If you add a new refusal path in lock.ts, make it retryable unless it is genuinely unrecoverable - a hard throw there silently reintroduces the contention refusal.",
+      "Two concurrent `draftforge run` processes now wait for each other instead of one failing. That is a deliberate behavior change from Phase 4 and P05-T05 must document it in the CLI docs.",
+      "The worker seam accepts exactly two entry shapes: `claimed` with `baseCommit: null`, or `running` with a non-null base commit that must equal the recovered workspace's. Any other lifecycle, or a resumed base-commit mismatch, is a hard error before side effects - do not soften the mismatch into an overwrite.",
+      "`blocked -> ready` requires actorKind `human`; automation calling it throws. transitionTask defaults to `automation`, so a reopen must pass it explicitly.",
+      "TaskState.review is a required field (nullable), so every literal TaskState construction needs it - including test fixtures. Missing it is a compile error, not a migration concern.",
       "`run` reports an interrupted attempt as in-flight and leaves it alone; only `resume` re-dispatches it. This reading of the P04-T04 contract is documented in README and docs/PROTOCOL.md.",
       "Execution fixtures are a deterministic builder (`node --import tsx test/fixtures/execution/project.ts <variant> <dir>`, variants unapproved/api-worker/deferred/resumable/no-work), not committed static directories.",
       "Workspace scope enforcement must stay content-derived: tracked changes come from a scratch index (no stat cache) unioned with a `--cached` diff. Reverting to a plain `git diff <base>` silently reopens a Windows hole where a same-size, restored-mtime rewrite is invisible; test/workspaces/git.test.ts guards it.",
@@ -322,7 +345,7 @@
       "A worker model call can mutate its worktree, so provider-level transparent retry must be disabled for that call; timeout or transient failure is resumed explicitly against the same attempt.",
       "Phase 4 must not mark worker output done. Its dependency test may simulate a trusted reviewer transition, but real reviewer execution starts in Phase 5.",
       "API adapters remain usable for text-only roles, but Phase 4 run/resume must reject an API-backed worker route before claiming work because no safe patch/tool protocol exists yet.",
-      "The default model IDs live in `src/providers/api/openai-api.ts` and `anthropic-api.ts` (DEFAULT_MODEL); update them there when a provider's default moves — config and domain must not pin a model ID.",
+      "The default model IDs live in `src/providers/api/openai-api.ts` and `anthropic-api.ts` (DEFAULT_MODEL); update them there when a provider's default moves \u2014 config and domain must not pin a model ID.",
       "Codex CLI, Claude Code, and provider API keys were not detected in this shell; provider live smoke tests require DRAFTFORGE_LIVE_SMOKE=1 plus the corresponding available authentication and otherwise skip.",
       "Windows npm-installed harnesses may resolve through .cmd shims; keep process invocation escaping and PATH-order regression tests intact.",
       "Generated `.draftforge/runs/` events are ignored run artifacts and must not be staged.",

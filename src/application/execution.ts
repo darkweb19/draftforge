@@ -103,7 +103,6 @@ interface ExecutionContext {
   readonly env: NodeJS.ProcessEnv;
   readonly caseSensitive: boolean;
   readonly agentRulePaths: readonly string[] | undefined;
-  readonly gate: DispatchGate;
 }
 
 type DispatchOutcome =
@@ -144,7 +143,6 @@ export async function executeProject(input: ExecutionInput): Promise<ExecutionSu
     env: input.env ?? process.env,
     caseSensitive: input.caseSensitive ?? process.platform !== "win32",
     agentRulePaths: input.agentRulePaths,
-    gate: new DispatchGate(),
   };
   assertRunId(context.runId);
 
@@ -358,8 +356,10 @@ async function reconcileAttempts(context: ExecutionContext): Promise<Reconciliat
 
 /**
  * Re-dispatch one interrupted attempt against its own identity and worktree.
- * The manifest is rewound to `claimed` so the trusted worker seam re-derives the
- * base commit from the recovered workspace instead of a stale record.
+ * The manifest is passed through as-is: a `claimed` manifest still carries no
+ * base commit (fresh dispatch), and a `running` manifest already carries the
+ * base commit recorded before the crash, which the worker seam trusts and
+ * cross-checks against the recovered workspace instead of rederiving it.
  */
 async function resumeAttempt(
   context: ExecutionContext,
@@ -368,10 +368,9 @@ async function resumeAttempt(
 ): Promise<DispatchOutcome> {
   const reference: AttemptReference = { runId: manifest.runId, attemptId: manifest.attemptId };
   let contract: TaskContract;
-  let rewound: ExecutionAttemptManifest;
   try {
     contract = await readTaskContract(context.root, task);
-    rewound = await rewindAttempt(context, task, manifest, reference);
+    await confirmResumeOwnership(context, task, manifest, reference);
   } catch (error: unknown) {
     return {
       kind: "deferred",
@@ -386,18 +385,25 @@ async function resumeAttempt(
   const claimed: ClaimedTaskAttempt = {
     task: { ...task, status: "active", attempt: reference },
     contract,
-    manifest: rewound,
+    manifest,
   };
   return dispatch(context, claimed, "resumed");
 }
 
-async function rewindAttempt(
+/**
+ * Re-check ownership under the project lock before resuming: a task that no
+ * longer owns this attempt must never be redispatched. Records durable
+ * evidence of the resume (`worker.attempt.resumed`) with the lifecycle and
+ * base commit as they stood before the resume, since that is what previously
+ * justified the rewind this replaces.
+ */
+async function confirmResumeOwnership(
   context: ExecutionContext,
   task: TaskState,
   manifest: ExecutionAttemptManifest,
   reference: AttemptReference,
-): Promise<ExecutionAttemptManifest> {
-  return withProjectLock(context.root, "attempt resume rewind", async () => {
+): Promise<void> {
+  return withProjectLock(context.root, "attempt resume ownership check", async () => {
     const state = await readProjectState(context.root);
     const current = state.tasks.find((candidate) => candidate.id === task.id);
     if (
@@ -410,11 +416,6 @@ async function rewindAttempt(
       );
     }
     const now = context.now();
-    const next = await updateExecutionAttemptManifest(context.root, reference, {
-      lifecycle: "claimed",
-      baseCommit: null,
-      now,
-    });
     await appendAttemptEvent(
       context.root,
       reference,
@@ -430,7 +431,6 @@ async function rewindAttempt(
       },
       context.env,
     );
-    return next;
   });
 }
 
@@ -463,19 +463,17 @@ async function dispatch(
   };
   let outcome: WorkerExecutionOutcome;
   try {
-    outcome = await context.gate.dispatch(context.runner, async (runner) =>
-      executeClaimedWorker({
-        root: context.root,
-        claimed,
-        runner,
-        workspace: context.workspace,
-        actor: context.actor,
-        now: context.now(),
-        env: context.env,
-        caseSensitive: context.caseSensitive,
-        ...(context.agentRulePaths === undefined ? {} : { agentRulePaths: context.agentRulePaths }),
-      }),
-    );
+    outcome = await executeClaimedWorker({
+      root: context.root,
+      claimed,
+      runner: context.runner,
+      workspace: context.workspace,
+      actor: context.actor,
+      now: context.now(),
+      env: context.env,
+      caseSensitive: context.caseSensitive,
+      ...(context.agentRulePaths === undefined ? {} : { agentRulePaths: context.agentRulePaths }),
+    });
   } catch (error: unknown) {
     // The worker seam keeps the task active and its evidence durable when it
     // refuses; surface it without failing the sibling dispatches.
@@ -799,52 +797,6 @@ async function findOrphanAttempts(
     }
   }
   return orphans.sort((left, right) => left.localeCompare(right, "en"));
-}
-
-/**
- * The project lock refuses contention rather than waiting, so two concurrent
- * dispatches inside one process must never be in a locked phase at the same
- * time. This gate serializes each dispatch's pre-model setup and post-model
- * finalization while leaving the model invocations themselves overlapped, which
- * is the only part that has to run in parallel.
- */
-class DispatchGate {
-  #queue: Promise<void> = Promise.resolve();
-
-  async dispatch<T>(runner: ModelRunner, run: (runner: ModelRunner) => Promise<T>): Promise<T> {
-    let release: (() => void) | undefined = await this.#enter();
-    const capabilities = runner.capabilities;
-    const instrumented: ModelRunner = {
-      ...(capabilities === undefined
-        ? {}
-        : { capabilities: (role) => capabilities.call(runner, role) }),
-      run: async (request) => {
-        release?.();
-        release = undefined;
-        try {
-          return await runner.run(request);
-        } finally {
-          release = await this.#enter();
-        }
-      },
-    };
-    try {
-      return await run(instrumented);
-    } finally {
-      release?.();
-    }
-  }
-
-  async #enter(): Promise<() => void> {
-    let release = (): void => {};
-    const held = new Promise<void>((resolveHeld) => {
-      release = resolveHeld;
-    });
-    const previous = this.#queue;
-    this.#queue = previous.then(async () => held);
-    await previous;
-    return release;
-  }
 }
 
 function defaultRunId(now: Date): string {

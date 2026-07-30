@@ -22,7 +22,7 @@
         "path": { "type": "string", "minLength": 1 }
       }
     },
-    "lifecycle": { "enum": ["claimed", "running", "review", "blocked"] },
+    "lifecycle": { "enum": ["claimed", "running", "verifying", "reviewing", "repairing", "review", "blocked", "integrated"] },
     "createdAt": { "type": "string", "format": "date-time" },
     "updatedAt": { "type": "string", "format": "date-time" },
     "budget": {
@@ -39,6 +39,36 @@
         "eventLog": { "type": "string", "minLength": 1 },
         "result": { "type": ["string", "null"] }
       }
+    },
+    "verification": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/attemptVerification" }
+      ]
+    },
+    "scan": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/attemptScan" }
+      ]
+    },
+    "verdict": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/attemptVerdict" }
+      ]
+    },
+    "usage": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/attemptUsage" }
+      ]
+    },
+    "integration": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/attemptIntegration" }
+      ]
     }
   },
   "$defs": {
@@ -51,6 +81,115 @@
         "timeMinutes": { "type": "integer", "minimum": 1 },
         "tokenLimit": { "type": "integer", "minimum": 1 },
         "costLimitUsd": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "failureClassification": {
+      "enum": [
+        "contract-violation",
+        "scope-violation",
+        "verification-failure",
+        "review-rejection",
+        "secret-detected",
+        "integration-conflict",
+        "harness-failure",
+        "timeout",
+        "unknown"
+      ]
+    },
+    "verificationCommandResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "exitCode", "durationMs", "timedOut", "terminated", "transcriptPath"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "exitCode": { "type": ["integer", "null"] },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "timedOut": { "type": "boolean" },
+        "terminated": { "type": "boolean" },
+        "transcriptPath": { "type": "string", "minLength": 1 }
+      }
+    },
+    "attemptVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "classification", "commands", "completedAt"],
+      "properties": {
+        "status": { "enum": ["passed", "failed"] },
+        "classification": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/failureClassification" }
+          ]
+        },
+        "commands": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/verificationCommandResult" }
+        },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "secretFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ruleId", "path", "line"],
+      "properties": {
+        "ruleId": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "attemptScan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "findings", "scannedAt"],
+      "properties": {
+        "status": { "enum": ["clean", "detected"] },
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/secretFinding" }
+        },
+        "scannedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "attemptVerdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "classification", "findingCount", "evidencePath", "recordedAt"],
+      "properties": {
+        "verdict": { "enum": ["accept", "reject", "block"] },
+        "classification": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/failureClassification" }
+          ]
+        },
+        "findingCount": { "type": "integer", "minimum": 0 },
+        "evidencePath": { "type": ["string", "null"], "minLength": 1 },
+        "recordedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "attemptUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputTokens", "outputTokens", "totalTokens", "costUsd", "calls"],
+      "properties": {
+        "inputTokens": { "type": ["integer", "null"], "minimum": 0 },
+        "outputTokens": { "type": ["integer", "null"], "minimum": 0 },
+        "totalTokens": { "type": ["integer", "null"], "minimum": 0 },
+        "costUsd": { "type": ["number", "null"], "minimum": 0 },
+        "calls": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "attemptIntegration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "projectBranch", "rollbackCommit", "integrationCommit", "integratedAt"],
+      "properties": {
+        "status": { "enum": ["integrated", "conflict"] },
+        "projectBranch": { "type": "string", "minLength": 1 },
+        "rollbackCommit": { "type": "string", "minLength": 1 },
+        "integrationCommit": { "type": ["string", "null"], "minLength": 1 },
+        "integratedAt": { "type": "string", "format": "date-time" }
       }
     }
   }

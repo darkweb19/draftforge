@@ -23,9 +23,9 @@ const state: ProjectState = {
   workflow: { phaseId: "phase-04", phaseName: "Execution", stage: "implementation", status: "in_progress", currentTask: null, nextTask: "P04-T01" },
   phases: [{ id: "phase-04", name: "Execution", status: "in_progress" }],
   tasks: [
-    { id: "P03-T04", title: "Done", status: "done", taskFile: ".draftforge/tasks/P03-T04.md", dependsOn: [], attempt: null },
-    { id: "P04-T01", title: "One", status: "backlog", taskFile: ".draftforge/tasks/P04-T01.md", dependsOn: ["P03-T04"], attempt: null },
-    { id: "P04-T02", title: "Two", status: "ready", taskFile: ".draftforge/tasks/P04-T02.md", dependsOn: [], attempt: null },
+    { id: "P03-T04", title: "Done", status: "done", taskFile: ".draftforge/tasks/P03-T04.md", dependsOn: [], attempt: null, review: null },
+    { id: "P04-T01", title: "One", status: "backlog", taskFile: ".draftforge/tasks/P04-T01.md", dependsOn: ["P03-T04"], attempt: null, review: null },
+    { id: "P04-T02", title: "Two", status: "ready", taskFile: ".draftforge/tasks/P04-T02.md", dependsOn: [], attempt: null, review: null },
   ],
   decisions: [],
   handoff: { updatedAt: "2026-07-26T00:00:00.000Z", updatedBy: "test", summary: "", decisionsLocked: [], openQuestions: [], blockers: [], nextActions: [], gotchas: [] },

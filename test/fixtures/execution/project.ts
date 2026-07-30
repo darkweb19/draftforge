@@ -123,6 +123,7 @@ export function projectState(spec: ProjectSpec): ProjectState {
     taskFile: `.draftforge/tasks/${task.id}.md`,
     dependsOn: task.dependsOn ?? [],
     attempt: task.attempt ?? null,
+    review: null,
   }));
   return {
     schemaVersion: PROJECT_STATE_SCHEMA_VERSION,

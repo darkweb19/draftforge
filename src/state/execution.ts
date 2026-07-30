@@ -5,8 +5,13 @@ import {
   EXECUTION_SCHEMA_VERSION,
   assertExecutionAttemptManifest,
   type AttemptEvidencePointers,
+  type AttemptIntegration,
   type AttemptLifecycle,
   type AttemptReference,
+  type AttemptScan,
+  type AttemptUsage,
+  type AttemptVerdict,
+  type AttemptVerification,
   type ExecutionAttemptManifest,
   type TaskBudget,
 } from "../domain/execution.js";
@@ -69,6 +74,13 @@ export function createExecutionAttemptManifest(input: {
       eventLog: attemptEventPath(input.reference),
       result: null,
     },
+    // Always written explicitly as `null` on creation so a manifest's presence
+    // of a key is meaningful, not merely a schema-optionality artifact.
+    verification: null,
+    scan: null,
+    verdict: null,
+    usage: null,
+    integration: null,
   };
   assertExecutionAttemptManifest(manifest);
   // Keep this local calculation coupled to manifest validation; it prevents an
@@ -126,7 +138,16 @@ export async function readExecutionAttemptManifest(
 export async function updateExecutionAttemptManifest(
   root: string,
   reference: AttemptReference,
-  input: { readonly lifecycle?: AttemptLifecycle; readonly baseCommit?: string | null; readonly now: Date },
+  input: {
+    readonly lifecycle?: AttemptLifecycle;
+    readonly baseCommit?: string | null;
+    readonly verification?: AttemptVerification | null;
+    readonly scan?: AttemptScan | null;
+    readonly verdict?: AttemptVerdict | null;
+    readonly usage?: AttemptUsage | null;
+    readonly integration?: AttemptIntegration | null;
+    readonly now: Date;
+  },
 ): Promise<ExecutionAttemptManifest> {
   if (Number.isNaN(input.now.getTime())) {
     throw new Error("Attempt timestamp must be a valid date.");
@@ -136,6 +157,11 @@ export async function updateExecutionAttemptManifest(
     ...previous,
     ...(input.lifecycle === undefined ? {} : { lifecycle: input.lifecycle }),
     ...(input.baseCommit === undefined ? {} : { baseCommit: input.baseCommit }),
+    ...(input.verification === undefined ? {} : { verification: input.verification }),
+    ...(input.scan === undefined ? {} : { scan: input.scan }),
+    ...(input.verdict === undefined ? {} : { verdict: input.verdict }),
+    ...(input.usage === undefined ? {} : { usage: input.usage }),
+    ...(input.integration === undefined ? {} : { integration: input.integration }),
     updatedAt: input.now.toISOString(),
   };
   assertExecutionAttemptManifest(next);

@@ -27,6 +27,7 @@ const state: ProjectState = {
       taskFile: ".draftforge/tasks/P01-T01.md",
       dependsOn: [],
       attempt: null,
+      review: null,
     },
   ],
   decisions: [],
@@ -56,4 +57,65 @@ test("renders the cross-harness position", () => {
   assert.match(session, /Current position: phase-01 — Test phase/);
   assert.match(session, /Current task: P01-T01\. Next task: None\./);
   assert.match(session, /## Decisions locked/);
+});
+
+test("accepts a populated review record", () => {
+  const withReview: ProjectState = {
+    ...state,
+    tasks: [
+      {
+        ...state.tasks[0]!,
+        status: "blocked",
+        review: {
+          repairAttempts: 2,
+          lastClassification: "verification-failure",
+          lastReviewAttempt: { runId: "run-01", attemptId: "attempt-01" },
+        },
+      },
+    ],
+  };
+  assert.doesNotThrow(() => assertProjectState(withReview));
+});
+
+test("rejects a task missing the review key", () => {
+  const invalid = {
+    ...state,
+    tasks: [
+      {
+        id: "P01-T01",
+        title: "Test the state",
+        status: "active",
+        taskFile: ".draftforge/tasks/P01-T01.md",
+        dependsOn: [],
+        attempt: null,
+      },
+    ],
+  };
+  assert.throws(() => assertProjectState(invalid), /tasks\[0\]\.review is required/);
+});
+
+test("rejects a negative repair counter", () => {
+  const invalid: unknown = {
+    ...state,
+    tasks: [
+      {
+        ...state.tasks[0]!,
+        review: { repairAttempts: -1, lastClassification: null, lastReviewAttempt: null },
+      },
+    ],
+  };
+  assert.throws(() => assertProjectState(invalid), /repairAttempts must be a non-negative integer/);
+});
+
+test("rejects an unknown failure classification", () => {
+  const invalid: unknown = {
+    ...state,
+    tasks: [
+      {
+        ...state.tasks[0]!,
+        review: { repairAttempts: 0, lastClassification: "made-up", lastReviewAttempt: null },
+      },
+    ],
+  };
+  assert.throws(() => assertProjectState(invalid), /lastClassification must be one of/);
 });

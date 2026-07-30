@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "project", "workflow", "phases", "tasks", "decisions", "handoff"],
   "properties": {
     "$schema": { "type": "string" },
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "project": {
       "type": "object",
       "additionalProperties": false,
@@ -73,7 +73,7 @@
     "task": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "title", "status", "taskFile", "dependsOn", "attempt"],
+      "required": ["id", "title", "status", "taskFile", "dependsOn", "attempt", "review"],
       "properties": {
         "id": { "type": "string", "pattern": "^P[0-9]{2}-T[0-9]{2}$" },
         "title": { "type": "string", "minLength": 1 },
@@ -83,18 +83,57 @@
         "attempt": {
           "oneOf": [
             { "type": "null" },
+            { "$ref": "#/$defs/attemptReference" }
+          ]
+        },
+        "review": {
+          "oneOf": [
+            { "type": "null" },
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["runId", "attemptId"],
+              "required": ["repairAttempts", "lastClassification", "lastReviewAttempt"],
               "properties": {
-                "runId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
-                "attemptId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" }
+                "repairAttempts": { "type": "integer", "minimum": 0 },
+                "lastClassification": {
+                  "oneOf": [
+                    { "type": "null" },
+                    { "$ref": "#/$defs/failureClassification" }
+                  ]
+                },
+                "lastReviewAttempt": {
+                  "oneOf": [
+                    { "type": "null" },
+                    { "$ref": "#/$defs/attemptReference" }
+                  ]
+                }
               }
             }
           ]
         }
       }
+    },
+    "attemptReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "attemptId"],
+      "properties": {
+        "runId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+        "attemptId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" }
+      }
+    },
+    "failureClassification": {
+      "enum": [
+        "contract-violation",
+        "scope-violation",
+        "verification-failure",
+        "review-rejection",
+        "secret-detected",
+        "integration-conflict",
+        "harness-failure",
+        "timeout",
+        "unknown"
+      ]
     }
   }
 }

@@ -20,6 +20,7 @@ import {
   StaleWorkerClaimError,
   WorkerCapabilityError,
 } from "../src/application/worker.js";
+import type { ExecutionAttemptManifest } from "../src/domain/execution.js";
 import { PROJECT_STATE_SCHEMA_VERSION, type ProjectState } from "../src/domain/state.js";
 import {
   attemptResultPath,
@@ -550,6 +551,73 @@ test("transition rechecks attempt identity and cannot apply a stale worker resul
   });
 });
 
+test("accepts a resumed running manifest whose base commit matches the recovered workspace", async () => {
+  const runningBaseCommit = "b".repeat(40);
+  await withWorkerFixture(
+    async ({ root, worktree, claimed }) => {
+      const outcome = await executeClaimedWorker({
+        root,
+        claimed,
+        runner: fakeRunner(JSON.stringify(workerResult())),
+        workspace: new FakeWorkspace(worktree, ["src/worker.ts"]),
+        actor: "worker-test",
+        now: NOW,
+        env: {},
+      });
+      assert.equal(outcome.transition, "review");
+      assert.equal(taskState(await readProjectState(root)).status, "review");
+    },
+    REFERENCE,
+    { lifecycle: "running", baseCommit: runningBaseCommit },
+  );
+});
+
+test("rejects a running manifest with no recorded base commit before any side effect", async () => {
+  await withWorkerFixture(
+    async ({ root, worktree, claimed }) => {
+      await assert.rejects(
+        executeClaimedWorker({
+          root,
+          claimed,
+          runner: fakeRunner(JSON.stringify(workerResult())),
+          workspace: new FakeWorkspace(worktree, ["src/worker.ts"]),
+          actor: "worker-test",
+          now: NOW,
+          env: {},
+        }),
+        /running attempt manifest to carry a base commit/,
+      );
+      assert.equal(taskState(await readProjectState(root)).status, "active");
+    },
+    REFERENCE,
+    { lifecycle: "running", baseCommit: null },
+  );
+});
+
+test("a running manifest whose base commit disagrees with the recovered workspace is a hard error, not a silent overwrite", async () => {
+  await withWorkerFixture(
+    async ({ root, worktree, claimed }) => {
+      const outcome = await executeClaimedWorker({
+        root,
+        claimed,
+        runner: fakeRunner(JSON.stringify(workerResult())),
+        workspace: new FakeWorkspace(worktree, ["src/worker.ts"]),
+        actor: "worker-test",
+        now: NOW,
+        env: {},
+      });
+      // The recovered workspace reports "b".repeat(40); the manifest disagrees.
+      assert.equal(outcome.transition, "blocked");
+      assert.equal(taskState(await readProjectState(root)).status, "blocked");
+      const manifest = await readExecutionAttemptManifest(root, REFERENCE);
+      assert.equal(manifest.lifecycle, "blocked");
+      assert.equal(manifest.baseCommit, "c".repeat(40));
+    },
+    REFERENCE,
+    { lifecycle: "running", baseCommit: "c".repeat(40) },
+  );
+});
+
 async function assertBlocked(
   result: ReturnType<typeof workerResult> | string,
   changedPaths: readonly string[],
@@ -574,6 +642,7 @@ async function assertBlocked(
 async function withWorkerFixture(
   run: (fixture: { readonly root: string; readonly worktree: string; readonly claimed: ClaimedTaskAttempt }) => Promise<void>,
   reference = REFERENCE,
+  manifestOverrides: Partial<ExecutionAttemptManifest> = {},
 ): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "draftforge-worker-"));
   const worktree = join(root, "worktree");
@@ -582,13 +651,16 @@ async function withWorkerFixture(
     await writeFile(join(worktree, "AGENTS.md"), "bounded rules", "utf8");
     await mkdir(resolve(root, ".draftforge", "tasks"), { recursive: true });
     await writeFile(resolve(root, ".draftforge", "tasks", "P04-T03.md"), TASK_CONTENT, "utf8");
-    const manifest = createExecutionAttemptManifest({
-      reference,
-      taskId: CONTRACT.id,
-      contractHash: hashTaskContract(TASK_CONTENT),
-      now: NOW,
-      budget: { timeMinutes: 3 },
-    });
+    const manifest = {
+      ...createExecutionAttemptManifest({
+        reference,
+        taskId: CONTRACT.id,
+        contractHash: hashTaskContract(TASK_CONTENT),
+        now: NOW,
+        budget: { timeMinutes: 3 },
+      }),
+      ...manifestOverrides,
+    };
     await writeExecutionAttemptManifest(root, manifest);
     const state = workerState(reference);
     await writeProjectState(root, state);
@@ -624,6 +696,7 @@ function workerState(reference = REFERENCE): ProjectState {
       taskFile: ".draftforge/tasks/P04-T03.md",
       dependsOn: [],
       attempt: reference,
+      review: null,
     }],
     decisions: [],
     handoff: {

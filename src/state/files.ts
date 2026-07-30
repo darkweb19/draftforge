@@ -18,24 +18,41 @@ export async function readProjectState(root: string): Promise<ProjectState> {
 }
 
 /**
- * State v2 adds a durable nullable attempt reference to every task. Keep this
- * migration deliberately narrow: it only upgrades the previous shipped shape
- * and then lets the strict domain validator reject anything else.
+ * State v2 added a durable nullable attempt reference to every task; v3 adds a
+ * durable nullable review record. Keep this migration deliberately narrow: it
+ * only upgrades the previous shipped shapes (v1 needs both `attempt` and
+ * `review`; v2 needs only `review`) and then lets the strict domain validator
+ * reject anything else.
  */
 export function migrateProjectState(value: unknown): unknown {
-  if (!isRecord(value) || value.schemaVersion !== 1) {
+  if (!isRecord(value) || !Array.isArray(value.tasks)) {
     return value;
   }
-  if (!Array.isArray(value.tasks)) {
-    return value;
+  if (value.schemaVersion === 1) {
+    return {
+      ...value,
+      schemaVersion: PROJECT_STATE_SCHEMA_VERSION,
+      tasks: value.tasks.map((task) =>
+        isRecord(task)
+          ? {
+              ...task,
+              ...(task.attempt === undefined ? { attempt: null } : {}),
+              ...(task.review === undefined ? { review: null } : {}),
+            }
+          : task,
+      ),
+    };
   }
-  return {
-    ...value,
-    schemaVersion: PROJECT_STATE_SCHEMA_VERSION,
-    tasks: value.tasks.map((task) =>
-      isRecord(task) && task.attempt === undefined ? { ...task, attempt: null } : task,
-    ),
-  };
+  if (value.schemaVersion === 2) {
+    return {
+      ...value,
+      schemaVersion: PROJECT_STATE_SCHEMA_VERSION,
+      tasks: value.tasks.map((task) =>
+        isRecord(task) && task.review === undefined ? { ...task, review: null } : task,
+      ),
+    };
+  }
+  return value;
 }
 
 export function serializeProjectState(state: ProjectState): string {

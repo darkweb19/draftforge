@@ -13,6 +13,7 @@ const task: TaskState = {
   taskFile: ".draftforge/tasks/P04-T01.md",
   dependsOn: ["P03-T04"],
   attempt: null,
+  review: null,
 };
 
 const contract = `# P04-T01 — Scheduler
