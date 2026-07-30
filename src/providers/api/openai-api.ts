@@ -1,4 +1,5 @@
 import type { ReasoningLevel } from "../../config/config.js";
+import type { ReportedUsage } from "../../application/ports.js";
 import type { ModelAdapter } from "../adapter.js";
 import { createRedactor } from "../reliability.js";
 import { ApiAdapterError, defaultFetch, sendApiRequest } from "./http.js";
@@ -63,7 +64,8 @@ export function createOpenAiApiAdapter(options: OpenAiApiAdapterOptions = {}): M
         redactor,
         ...(request.signal === undefined ? {} : { signal: request.signal }),
       });
-      return { text: extractText(raw) };
+      const parsed = parseJson(raw);
+      return { text: extractText(parsed), usage: extractUsage(parsed) };
     },
   };
 }
@@ -85,8 +87,7 @@ function reasoningEffort(level: ReasoningLevel): "low" | "medium" | "high" {
   return level === "low" ? "low" : level === "medium" ? "medium" : "high";
 }
 
-function extractText(raw: string): string {
-  const parsed = parseJson(raw);
+function extractText(parsed: unknown): string {
   const choices = readArray(readProperty(parsed, "choices"));
   const message = readProperty(choices[0], "message");
   const content = readProperty(message, "content");
@@ -97,6 +98,24 @@ function extractText(raw: string): string {
     });
   }
   return content;
+}
+
+/**
+ * OpenAI reports `prompt_tokens` / `completion_tokens` / `total_tokens`. A
+ * field the provider omits, or a wire value that fails defensive validation
+ * (non-integer, negative, non-numeric), stays `null` — never coerced, never 0.
+ */
+function extractUsage(parsed: unknown): ReportedUsage {
+  const usage = readProperty(parsed, "usage");
+  return {
+    inputTokens: validatedCount(readProperty(usage, "prompt_tokens")),
+    outputTokens: validatedCount(readProperty(usage, "completion_tokens")),
+    totalTokens: validatedCount(readProperty(usage, "total_tokens")),
+  };
+}
+
+function validatedCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function parseJson(raw: string): unknown {

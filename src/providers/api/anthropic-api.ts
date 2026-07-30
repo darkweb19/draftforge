@@ -1,4 +1,5 @@
 import type { ReasoningLevel } from "../../config/config.js";
+import type { ReportedUsage } from "../../application/ports.js";
 import type { ModelAdapter } from "../adapter.js";
 import { createRedactor } from "../reliability.js";
 import { ApiAdapterError, defaultFetch, sendApiRequest } from "./http.js";
@@ -65,7 +66,8 @@ export function createAnthropicApiAdapter(options: AnthropicApiAdapterOptions = 
         redactor,
         ...(request.signal === undefined ? {} : { signal: request.signal }),
       });
-      return { text: extractText(raw) };
+      const parsed = parseJson(raw);
+      return { text: extractText(parsed), usage: extractUsage(parsed) };
     },
   };
 }
@@ -96,8 +98,7 @@ function thinking(level: ReasoningLevel): { thinking?: { type: "enabled"; budget
   return {};
 }
 
-function extractText(raw: string): string {
-  const parsed = parseJson(raw);
+function extractText(parsed: unknown): string {
   const blocks = readArray(readProperty(parsed, "content"));
   const text = blocks
     .filter((block) => readProperty(block, "type") === "text")
@@ -111,6 +112,27 @@ function extractText(raw: string): string {
     });
   }
   return text;
+}
+
+/**
+ * Anthropic reports `usage.input_tokens` / `usage.output_tokens` and has no
+ * wire-level total; `totalTokens` is the sum only when both are present,
+ * else `null`. A field the provider omits, or a value that fails defensive
+ * validation (non-integer, negative, non-numeric), stays `null`.
+ */
+function extractUsage(parsed: unknown): ReportedUsage {
+  const usage = readProperty(parsed, "usage");
+  const inputTokens = validatedCount(readProperty(usage, "input_tokens"));
+  const outputTokens = validatedCount(readProperty(usage, "output_tokens"));
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens === null || outputTokens === null ? null : inputTokens + outputTokens,
+  };
+}
+
+function validatedCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function parseJson(raw: string): unknown {

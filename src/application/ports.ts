@@ -27,9 +27,22 @@ export interface ModelRequest {
   readonly onProcessStart?: (process: ModelProcessStart) => void;
 }
 
+/** Provider-reported token usage. Absent means unknown and is never estimated. */
+export interface ReportedUsage {
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly totalTokens: number | null;
+}
+
 export interface ModelResponse {
   /** Raw text as returned by the provider, before any parsing. */
   readonly text: string;
+  /**
+   * Absent when the provider reported nothing (all harness adapters, and any
+   * API response lacking a usage object). Never defaulted to zero — absence
+   * is the honest representation of "unknown."
+   */
+  readonly usage?: ReportedUsage;
 }
 
 export interface ModelRunner {

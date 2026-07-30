@@ -10,12 +10,17 @@ const KEY = "sk-openai-test-key-abcdefghij";
 const LEAKED_SECRET = "openai-contract-secret-12345";
 const ENV = { OPENAI_API_KEY: KEY } as NodeJS.ProcessEnv;
 
-function completion(text: string): string {
-  return JSON.stringify({ choices: [{ message: { role: "assistant", content: text } }] });
+function completion(text: string, usage?: Record<string, unknown>): string {
+  return JSON.stringify({
+    choices: [{ message: { role: "assistant", content: text } }],
+    ...(usage === undefined ? {} : { usage }),
+  });
 }
 
 test("OpenAI API adapter satisfies the shared adapter contract", async (t) => {
-  const success = new FakeFetch(httpResponse(completion("openai response")));
+  const success = new FakeFetch(
+    httpResponse(completion("openai response", { prompt_tokens: 12, completion_tokens: 34, total_tokens: 46 })),
+  );
   const transient = new FakeFetch(
     httpResponse(`overloaded while handling ${LEAKED_SECRET}`, { ok: false, status: 429 }),
   );
@@ -88,6 +93,48 @@ test("OpenAI adapter defensively rejects local workspace access before key or fe
     /text-only/u,
   );
   assert.equal(fake.requests.length, 0);
+});
+
+test("OpenAI adapter reports full usage from the wire", async () => {
+  const fake = new FakeFetch(
+    httpResponse(completion("ok", { prompt_tokens: 100, completion_tokens: 200, total_tokens: 300 })),
+  );
+  const adapter = createOpenAiApiAdapter({ fetch: fake.fetch, env: ENV });
+
+  const response = await adapter.run(SAMPLE_ADAPTER_REQUEST);
+
+  assert.deepEqual(response.usage, { inputTokens: 100, outputTokens: 200, totalTokens: 300 });
+});
+
+test("OpenAI adapter reports a partial usage object with the missing field null", async () => {
+  const fake = new FakeFetch(httpResponse(completion("ok", { prompt_tokens: 100 })));
+  const adapter = createOpenAiApiAdapter({ fetch: fake.fetch, env: ENV });
+
+  const response = await adapter.run(SAMPLE_ADAPTER_REQUEST);
+
+  assert.deepEqual(response.usage, { inputTokens: 100, outputTokens: null, totalTokens: null });
+});
+
+test("OpenAI adapter reports an all-null usage object when the provider sends none", async () => {
+  const fake = new FakeFetch(httpResponse(completion("ok")));
+  const adapter = createOpenAiApiAdapter({ fetch: fake.fetch, env: ENV });
+
+  const response = await adapter.run(SAMPLE_ADAPTER_REQUEST);
+
+  assert.deepEqual(response.usage, { inputTokens: null, outputTokens: null, totalTokens: null });
+});
+
+test("OpenAI adapter never coerces a malformed usage value; it stays null", async () => {
+  const fake = new FakeFetch(
+    httpResponse(
+      completion("ok", { prompt_tokens: -5, completion_tokens: "12", total_tokens: 12.5 }),
+    ),
+  );
+  const adapter = createOpenAiApiAdapter({ fetch: fake.fetch, env: ENV });
+
+  const response = await adapter.run(SAMPLE_ADAPTER_REQUEST);
+
+  assert.deepEqual(response.usage, { inputTokens: null, outputTokens: null, totalTokens: null });
 });
 
 test("OpenAI adapter treats an empty completion as terminal", async () => {

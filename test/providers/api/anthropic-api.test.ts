@@ -10,17 +10,20 @@ const KEY = "sk-ant-test-key-abcdefghij";
 const LEAKED_SECRET = "anthropic-contract-secret-12345";
 const ENV = { ANTHROPIC_API_KEY: KEY } as NodeJS.ProcessEnv;
 
-function message(text: string): string {
+function message(text: string, usage?: Record<string, unknown>): string {
   return JSON.stringify({
     content: [
       { type: "thinking", thinking: "internal" },
       { type: "text", text },
     ],
+    ...(usage === undefined ? {} : { usage }),
   });
 }
 
 test("Anthropic API adapter satisfies the shared adapter contract", async (t) => {
-  const success = new FakeFetch(httpResponse(message("anthropic response")));
+  const success = new FakeFetch(
+    httpResponse(message("anthropic response", { input_tokens: 12, output_tokens: 34 })),
+  );
   const transient = new FakeFetch(
     httpResponse(`overloaded while handling ${LEAKED_SECRET}`, { ok: false, status: 529 }),
   );
@@ -76,6 +79,46 @@ test("Anthropic adapter concatenates text blocks and forwards an explicit model"
   assert.equal(body["model"], "claude-explicit");
   // Low reasoning keeps the non-thinking path.
   assert.equal(body["thinking"], undefined);
+});
+
+test("Anthropic adapter reports usage, summing input and output into total", async () => {
+  const fake = new FakeFetch(
+    httpResponse(message("ok", { input_tokens: 100, output_tokens: 200 })),
+  );
+  const adapter = createAnthropicApiAdapter({ fetch: fake.fetch, env: ENV });
+
+  const response = await adapter.run(SAMPLE_ADAPTER_REQUEST);
+
+  assert.deepEqual(response.usage, { inputTokens: 100, outputTokens: 200, totalTokens: 300 });
+});
+
+test("Anthropic adapter reports a partial usage object with total null when one field is missing", async () => {
+  const fake = new FakeFetch(httpResponse(message("ok", { input_tokens: 100 })));
+  const adapter = createAnthropicApiAdapter({ fetch: fake.fetch, env: ENV });
+
+  const response = await adapter.run(SAMPLE_ADAPTER_REQUEST);
+
+  assert.deepEqual(response.usage, { inputTokens: 100, outputTokens: null, totalTokens: null });
+});
+
+test("Anthropic adapter reports an all-null usage object when the provider sends none", async () => {
+  const fake = new FakeFetch(httpResponse(message("ok")));
+  const adapter = createAnthropicApiAdapter({ fetch: fake.fetch, env: ENV });
+
+  const response = await adapter.run(SAMPLE_ADAPTER_REQUEST);
+
+  assert.deepEqual(response.usage, { inputTokens: null, outputTokens: null, totalTokens: null });
+});
+
+test("Anthropic adapter never coerces a malformed usage value; it stays null", async () => {
+  const fake = new FakeFetch(
+    httpResponse(message("ok", { input_tokens: -5, output_tokens: "12" })),
+  );
+  const adapter = createAnthropicApiAdapter({ fetch: fake.fetch, env: ENV });
+
+  const response = await adapter.run(SAMPLE_ADAPTER_REQUEST);
+
+  assert.deepEqual(response.usage, { inputTokens: null, outputTokens: null, totalTokens: null });
 });
 
 test("Anthropic adapter fails terminally when the key is unset and never calls fetch", async () => {

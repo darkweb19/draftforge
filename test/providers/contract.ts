@@ -38,10 +38,22 @@ export async function assertAdapterContract(t: TestContext, spec: AdapterContrac
     );
   });
 
-  await t.test("returns non-empty response text on success", async () => {
+  await t.test("returns non-empty response text and honest usage on success", async () => {
+    // One call only. The success fixtures are backed by single-outcome fakes,
+    // and callers assert their transport was invoked exactly once, so the
+    // usage assertion has to share this response rather than run again.
     const response = await spec.success.run(SAMPLE_ADAPTER_REQUEST);
     assert.equal(typeof response.text, "string");
     assert.ok(response.text.length > 0);
+
+    // Usage is reported, never estimated: API adapters surface whatever the
+    // provider reported (even if every field within it is null); harness
+    // adapters report nothing, and that must stay visibly absent.
+    if (spec.expected.transport === "api") {
+      assert.ok(response.usage !== undefined, "API adapter must report a usage object");
+    } else {
+      assert.equal(response.usage, undefined, "harness adapter must leave usage absent");
+    }
   });
 
   await t.test("classifies transient failures as retryable and redacts secrets", async () => {

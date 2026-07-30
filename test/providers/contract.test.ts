@@ -17,7 +17,13 @@ const redactor = createRedactor([SECRET]);
 test("the adapter contract suite validates a conforming fake adapter", async (t) => {
   await assertAdapterContract(t, {
     expected: CAPS,
-    success: fakeAdapter({ capabilities: CAPS, onRun: async () => ({ text: "ok" }) }),
+    success: fakeAdapter({
+      capabilities: CAPS,
+      onRun: async () => ({
+        text: "ok",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      }),
+    }),
     transientFailure: fakeAdapter({
       capabilities: CAPS,
       onRun: async () => {
