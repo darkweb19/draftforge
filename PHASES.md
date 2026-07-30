@@ -75,6 +75,7 @@ Deliverables:
 
 - Reviewer role, verification commands, and bounded repair loops.
 - Diff checks, secret scanning integration, failure classification, and rollback guidance.
+- Integration of accepted work onto the project branch with a recorded rollback point, because worktrees fork from project `HEAD` and a dependent task must be able to build on its predecessor.
 - Cost and token accounting for API runs.
 
 Exit gate: injected failures are rejected, recorded, repaired or blocked, and never silently marked done.
