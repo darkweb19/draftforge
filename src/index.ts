@@ -9,6 +9,9 @@ export {
   type RunOptions,
   type RunResult,
 } from "./commands/run.js";
+export { runReview, type ReviewOptions, type ReviewResult } from "./commands/review.js";
+export { reviewProject, type ReviewDependencies, type ReviewSummary } from "./commands/review.js";
+export type { ReviewWorkspacePort, ReviewWorkspaceSnapshot, IntegrationResult } from "./application/integration.js";
 export {
   ExecutionRefusedError,
   executeProject,

@@ -83,6 +83,37 @@ export interface ExecutionInput {
   readonly agentRulePaths?: readonly string[];
 }
 
+/**
+ * Review needs this crash-recovery half without claiming, resuming, or calling
+ * a worker. It finalizes only active attempts that already have a validated
+ * worker result artifact.
+ */
+export interface ReconcilePersistedWorkerResultsInput {
+  readonly root: string;
+  readonly actor: string;
+  readonly now?: () => Date;
+  readonly env?: NodeJS.ProcessEnv;
+}
+
+export async function reconcilePersistedWorkerResults(
+  input: ReconcilePersistedWorkerResultsInput,
+): Promise<readonly TaskExecutionRecord[]> {
+  const root = resolve(input.root);
+  const now = input.now ?? (() => new Date());
+  const state = await readProjectState(root);
+  const records: TaskExecutionRecord[] = [];
+  for (const task of state.tasks) {
+    if (task.status !== "active" || task.attempt === null) continue;
+    let manifest: ExecutionAttemptManifest;
+    try { manifest = await readExecutionAttemptManifest(root, task.attempt); } catch { continue; }
+    const result = await readPersistedResult(root, manifest);
+    if (result.kind !== "valid") continue;
+    const status = await finalizeAttemptFromRecord({ root, actor: input.actor, now, env: input.env ?? process.env } as ExecutionContext, task, task.attempt, result.outcome);
+    records.push({ taskId: task.id, attempt: task.attempt, disposition: "finalized", status, detail: "Persisted worker result was reconciled for review." });
+  }
+  return records;
+}
+
 /** A precondition the operator must fix; never a partially applied run. */
 export class ExecutionRefusedError extends Error {
   constructor(message: string) {

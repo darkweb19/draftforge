@@ -119,7 +119,7 @@ function nextAction(summary: ExecutionSummary): string {
     return "`draftforge resume` to continue the unfinished attempts.";
   }
   if (summary.reviewReady.length > 0) {
-    return "review the attempt evidence; only a reviewer moves a task to done (Phase 5).";
+    return "`draftforge review` to run machine checks, reviewer judgment, and accepted-work integration.";
   }
   if (summary.blocked.length > 0) {
     return "read the blocked attempts' result artifacts under `.draftforge/runs/`.";

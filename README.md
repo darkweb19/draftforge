@@ -97,6 +97,7 @@ Secret values and authentication command output are never printed.
 ```text
 draftforge run       # reconcile, claim ready non-conflicting tasks, execute them
 draftforge resume    # reconcile and continue interrupted attempts only
+draftforge review    # run machine checks, independent review, repair, and integration
 ```
 
 `run` recomputes readiness, claims up to `roles.worker.maxConcurrency` tasks
@@ -143,6 +144,52 @@ resumed, reconciled, deferred (with a per-task reason), review-ready, blocked,
 orphan attempts, and no-work. Exit `0` means nothing failed, `1` means a task is
 blocked or an attempt needs manual inspection, and `2` means the command was
 refused before touching state.
+
+## Machine-first review and recovery
+
+`draftforge review` is the only command that can complete a task. It runs the
+task contract's verification commands in the retained attempt worktree, checks
+the authoritative Git-derived changed paths against the owned paths, scans the
+diff and untracked candidate files for secrets, and then asks the independent
+reviewer for one strict verdict envelope. A reviewer can reject passing work;
+it cannot accept a failed machine check.
+
+Verification is intentionally narrow and shell-free: a task may declare only
+`npm run <script>` or `node <relative-path>` with literal arguments. Commands
+with a shell operator, redirection, traversal, absolute path, flag, or another
+program are a `contract-violation`, not a skipped check. Verification receives
+a minimal replacement environment, so provider credentials are not forwarded
+to project commands.
+
+The scanner records a locator only: rule ID, repository-relative path, and line
+number. It never records the credential value, a substring, or surrounding line
+content. A detected secret, scope violation, malformed review envelope, or
+integration conflict blocks immediately and retains the worktree for inspection.
+
+Only `verification-failure` and `review-rejection` are repairable. A repair
+creates a new durable attempt, reuses the rejected worktree and branch history,
+and carries only persisted actionable findings into the worker prompt. The
+durable repair counter is capped by `limits.maxRepairAttempts`; once reached,
+the task remains blocked until a human reopens it.
+
+Accepted work is re-scanned and re-checked for scope, then merged from a clean
+project root. DraftForge records the project branch head immediately before the
+merge as the rollback point and records the integration commit only after a
+successful merge. It never performs rollback automatically: after inspection,
+an operator may choose to revert the recorded integration commit or reset to the
+recorded rollback point. A dirty root or merge conflict aborts integration,
+preserves the attempt worktree, and blocks the task rather than stashing or
+overwriting local changes.
+
+`status` reports each task's repair counter and classification, retained
+integration rollback point/commit, and run usage totals. Usage is provider
+reported only: harness calls and unpriced models show `unknown`; DraftForge
+never estimates tokens or cost from prompt or completion length.
+
+The project lock waits for a bounded interval when another DraftForge command
+holds it. This serializes concurrent `run`, `resume`, and review transitions;
+it does not hold the lock while a verification command, scan, model call, or
+merge is running.
 
 ## Initializing a project
 

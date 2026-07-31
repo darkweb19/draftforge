@@ -13,6 +13,8 @@ export interface WorkerPromptInput {
   readonly workspace: WorkspaceLocation;
   /** Repository instruction files approved for worker context. */
   readonly agentRulePaths?: readonly string[];
+  /** Persisted actionable review findings for a bounded repair attempt. */
+  readonly repairFindings?: readonly { readonly summary: string; readonly path: string; readonly line?: number }[];
 }
 
 /**
@@ -72,6 +74,17 @@ export async function buildWorkerPrompt(input: WorkerPromptInput): Promise<Model
       "",
       input.contract.verification.map((command) => `- ${command}`).join("\n"),
       "",
+      ...(input.repairFindings === undefined || input.repairFindings.length === 0
+        ? []
+        : [
+            "# Repair findings",
+            "",
+            "Address only these persisted review findings while staying within the assigned contract:",
+            ...input.repairFindings.map((finding) =>
+              `- ${finding.path}${finding.line === undefined ? "" : `:${String(finding.line)}`}: ${finding.summary}`,
+            ),
+            "",
+          ]),
       "# Required result envelope",
       "",
       "Return exactly one JSON object and no raw prose or Markdown fence:",

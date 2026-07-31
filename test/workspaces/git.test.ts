@@ -11,6 +11,7 @@ import {
   rename,
   rm,
   stat,
+  symlink,
   utimes,
   writeFile,
 } from "node:fs/promises";
@@ -19,11 +20,17 @@ import { join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { after, test, type TestContext } from "node:test";
 import type { WorkspaceAttempt } from "../../src/application/workspace.js";
+import { scanForSecrets } from "../../src/application/secrets.js";
 import {
   GitWorkspace,
+  MAX_UNTRACKED_FILE_BYTES,
+  MAX_UNTRACKED_SCAN_ENTRIES,
+  MAX_UNTRACKED_SCAN_DEPTH,
+  MAX_UNTRACKED_SCAN_FILES,
   WorkspaceError,
   WorkspaceInUseError,
   normalizeRepositoryPath,
+  setUntrackedScanTestHookForTests,
   trustedInspectionArguments,
   workspaceBranch,
   workspacePath,
@@ -730,6 +737,145 @@ test("untracked enumeration exposes ignored secrets without traversing fixed bui
     "mixed/visible.txt",
     "ordinary.txt",
   ]);
+  const snapshot = await workspace.reviewSnapshot(ATTEMPT, location.baseCommit);
+  assert.ok(snapshot.untracked.some((candidate) => candidate.path === "hidden.secret"));
+  assert.ok(snapshot.untracked.some((candidate) => candidate.path === ".env.worker"));
+});
+
+test("review snapshots scan only genuinely untracked files, not whole tracked files", async (t) => {
+  const synthetic = `AKIA${"9".repeat(16)}`;
+  const repository = await createRepository(t, { ".gitignore": "*.secret\n", "tracked.ts": `const historical = "${synthetic}";\nconst value = 1;\n` });
+  const workspace = new GitWorkspace({ projectRoot: repository });
+  const location = await workspace.createOrRecover(ATTEMPT);
+  await writeFile(join(location.path, "tracked.ts"), `const historical = "${synthetic}";\nconst value = 2;\n`, "utf8");
+  const snapshot = await workspace.reviewSnapshot(ATTEMPT, location.baseCommit);
+  assert.deepEqual(snapshot.untracked, []);
+  assert.equal(scanForSecrets({ diff: { changedPaths: snapshot.changedPaths, patch: snapshot.patch }, untracked: snapshot.untracked }).status, "clean");
+  await writeFile(join(location.path, "planted.secret"), synthetic, "utf8");
+  const withIgnored = await workspace.reviewSnapshot(ATTEMPT, location.baseCommit);
+  assert.ok(withIgnored.untracked.some((candidate) => candidate.path === "planted.secret"));
+  assert.equal(scanForSecrets({ diff: { changedPaths: withIgnored.changedPaths, patch: withIgnored.patch }, untracked: withIgnored.untracked }).status, "detected");
+});
+
+test("review snapshots recursively scan ignored untracked directories without persisting secret values", async (t) => {
+  const synthetic = `AKIA${"8".repeat(16)}`;
+  const repository = await createRepository(t, { ".gitignore": "ignored-dir/\n" });
+  const workspace = new GitWorkspace({ projectRoot: repository });
+  const location = await workspace.createOrRecover(ATTEMPT);
+  await mkdir(join(location.path, "ignored-dir"), { recursive: true });
+  await writeFile(join(location.path, "ignored-dir", "secret.txt"), `credential=${synthetic}\n`, "utf8");
+  const snapshot = await workspace.reviewSnapshot(ATTEMPT, location.baseCommit);
+  assert.ok(snapshot.untracked.some((candidate) => candidate.path === "ignored-dir/secret.txt"));
+  const scan = scanForSecrets({ diff: { changedPaths: snapshot.changedPaths, patch: snapshot.patch }, untracked: snapshot.untracked });
+  assert.equal(scan.status, "detected");
+  assert.deepEqual(scan.findings.map((finding) => finding.path), ["ignored-dir/secret.txt"]);
+  assert.equal(JSON.stringify(scan).includes(synthetic), false);
+  assert.equal(JSON.stringify(scan).includes(synthetic.slice(4, 12)), false);
+});
+
+test("review snapshots fail closed when ignored candidates exceed traversal bounds", async (t) => {
+  await t.test("oversized regular file", async (t) => {
+    const repository = await createRepository(t, { ".gitignore": "*.secret\n" });
+    const workspace = new GitWorkspace({ projectRoot: repository });
+    const location = await workspace.createOrRecover(ATTEMPT);
+    await writeFile(join(location.path, "large.secret"), "x".repeat(MAX_UNTRACKED_FILE_BYTES + 1), "utf8");
+    await assert.rejects(workspace.reviewSnapshot(ATTEMPT, location.baseCommit), /per-file scan limit/u);
+  });
+
+  await t.test("excessive file count", async (t) => {
+    const repository = await createRepository(t, { ".gitignore": "ignored/\n" });
+    const workspace = new GitWorkspace({ projectRoot: repository });
+    const location = await workspace.createOrRecover(ATTEMPT);
+    await mkdir(join(location.path, "ignored"), { recursive: true });
+    await Promise.all(Array.from({ length: MAX_UNTRACKED_SCAN_FILES + 1 }, (_, index) => writeFile(join(location.path, "ignored", `${String(index)}.txt`), "x", "utf8")));
+    await assert.rejects(workspace.reviewSnapshot(ATTEMPT, location.baseCommit), /(file-count|directory-entry) limit/u);
+  });
+
+  await t.test("excessive empty-directory entries", async (t) => {
+    const repository = await createRepository(t, { ".gitignore": "ignored/\n" });
+    const workspace = new GitWorkspace({ projectRoot: repository });
+    const location = await workspace.createOrRecover(ATTEMPT);
+    await mkdir(join(location.path, "ignored"), { recursive: true });
+    await Promise.all(Array.from({ length: MAX_UNTRACKED_SCAN_ENTRIES + 1 }, (_, index) => mkdir(join(location.path, "ignored", `empty-${String(index)}`))));
+    await assert.rejects(workspace.reviewSnapshot(ATTEMPT, location.baseCommit), /directory-entry limit/u);
+  });
+
+  await t.test("deep ignored tree", async (t) => {
+    const repository = await createRepository(t, { ".gitignore": "ignored/\n" });
+    const workspace = new GitWorkspace({ projectRoot: repository });
+    const location = await workspace.createOrRecover(ATTEMPT);
+    let nested = join(location.path, "ignored");
+    for (let index = 0; index <= MAX_UNTRACKED_SCAN_DEPTH; index += 1) nested = join(nested, `d${String(index)}`);
+    await mkdir(nested, { recursive: true });
+    await writeFile(join(nested, "candidate.txt"), "x", "utf8");
+    await assert.rejects(workspace.reviewSnapshot(ATTEMPT, location.baseCommit), /directory depth/u);
+  });
+});
+
+test("review snapshots skip ignored symlinks instead of following their targets", async (t) => {
+  const repository = await createRepository(t, { ".gitignore": "ignored/\n" });
+  const workspace = new GitWorkspace({ projectRoot: repository });
+  const location = await workspace.createOrRecover(ATTEMPT);
+  await mkdir(join(location.path, "ignored"), { recursive: true });
+  const target = await mkdtemp(join(tmpdir(), "draftforge-outside-review-target-"));
+  t.after(async () => rm(target, { recursive: true, force: true }));
+  await writeFile(join(target, "secret.txt"), "outside\n", "utf8");
+  try { await symlink(target, join(location.path, "ignored", "candidate-dir"), "dir"); }
+  catch { t.skip("symlink creation requires Windows Developer Mode or administrator privileges"); return; }
+  const snapshot = await workspace.reviewSnapshot(ATTEMPT, location.baseCommit);
+  assert.equal(snapshot.untracked.some((candidate) => candidate.path.startsWith("ignored/candidate-dir")), false);
+});
+
+test("review snapshots fail closed when an ignored parent briefly redirects into an in-root tracked directory", async (t) => {
+  const repository = await createRepository(t, {
+    ".gitignore": "ignored/\n",
+    "candidate.txt": "tracked source must never enter an untracked snapshot\n",
+  });
+  const workspace = new GitWorkspace({ projectRoot: repository });
+  const location = await workspace.createOrRecover(ATTEMPT);
+  const ignored = join(location.path, "ignored");
+  const held = join(location.path, "ignored-held");
+  const tracked = location.path;
+  await mkdir(ignored, { recursive: true });
+  await writeFile(join(ignored, "candidate.txt"), "untracked source\n", "utf8");
+  assert.deepEqual(await workspace.changedPaths(ATTEMPT, location.baseCommit), ["ignored"]);
+  const canonicalCandidate = join(await realpath(ignored), "candidate.txt");
+
+  let swapped = false;
+  let hookCalls = 0;
+  const restoreHook = setUntrackedScanTestHookForTests(async (event, lexicalPath) => {
+    if (lexicalPath !== canonicalCandidate) return;
+    hookCalls += 1;
+    if (event === "before-file-open") {
+      await rename(ignored, held);
+      try {
+        await symlink(tracked, ignored, "dir");
+      } catch (error: unknown) {
+        await rename(held, ignored);
+        throw error;
+      }
+      swapped = true;
+      return;
+    }
+    if (event === "after-file-open" && swapped) {
+      await rm(ignored, { force: true });
+      await rename(held, ignored);
+      swapped = false;
+    }
+  });
+  try {
+    await assert.rejects(
+      workspace.reviewSnapshot(ATTEMPT, location.baseCommit),
+      /changed or escaped while it was opened/u,
+    );
+    assert.equal(hookCalls, 2);
+  } finally {
+    restoreHook();
+    if (swapped) {
+      await rm(ignored, { force: true });
+      await rename(held, ignored);
+    }
+  }
 });
 
 test("a fixed build root is allowed only when it is an ignored directory", async (t) => {

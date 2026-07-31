@@ -76,6 +76,11 @@ test("two disjoint roots run in parallel and never exceed maxConcurrency", async
   assert.equal(statusOf(state, "P04-T02"), "review");
   assert.equal(state.tasks.some((task) => task.status === "done"), false, "worker success must never self-accept");
   assert.deepEqual(result.summary.reviewReady, ["P04-T01", "P04-T02"]);
+  assert.ok(
+    result.lines.includes(
+      "Next: `draftforge review` to run machine checks, reviewer judgment, and accepted-work integration.",
+    ),
+  );
 });
 
 test("a third ready root waits for a worker slot instead of overbooking the cap", async (t) => {

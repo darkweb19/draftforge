@@ -11,6 +11,12 @@ export interface ProcessRequest {
   readonly args: readonly string[];
   readonly stdin: string;
   readonly cwd?: string;
+  /**
+   * Optional replacement environment. Verification uses this to avoid
+   * forwarding provider credentials to task commands; harness model calls
+   * intentionally omit it and retain their normal inherited environment.
+   */
+  readonly env?: NodeJS.ProcessEnv;
   readonly signal?: AbortSignal;
   readonly onStart?: (process: ModelProcessStart) => void;
 }
@@ -150,6 +156,7 @@ export function createProcessTransport(options: ProcessTransportOptions = {}): P
             windowsHide: true,
             windowsVerbatimArguments: invocation.windowsVerbatimArguments,
             ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+            ...(request.env === undefined ? {} : { env: request.env }),
           });
           if (child.pid !== undefined) {
             try {

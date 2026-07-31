@@ -40,14 +40,34 @@ test("shows help without arguments", async () => {
   assert.match(capture.output.join("\n"), /Usage: draftforge/);
 });
 
-test("help documents the run and resume outcome classes and exit codes", async () => {
+test("help documents run, resume, and review outcome classes and exit codes", async () => {
   const capture = captureIo();
   assert.equal(await main(["help"], capture.io), 0);
   const help = capture.output.join("\n");
   assert.match(help, /run\s+Reconcile, then claim and execute ready worker tasks/u);
   assert.match(help, /resume\s+Reconcile interrupted attempts/u);
+  assert.match(help, /review\s+Run machine-first review, bounded repairs, and integration/u);
   assert.match(help, /dispatched, resumed, reconciled, deferred, review-ready,/u);
   assert.match(help, /Exit 0 means nothing failed, 1 means a task was/u);
+});
+
+test("review reports a deterministic no-work summary without starting a provider", async () => {
+  await withCliVariant("review-no-work", async (root) => {
+    const capture = captureIo();
+    assert.equal(await main(["review", "--by", "cli-test"], capture.io, root), 0);
+    const output = capture.output.join("\n");
+    assert.match(output, /^Accepted: none$/mu);
+    assert.match(output, /^Integrated: none$/mu);
+    assert.match(output, /^Repairing: none$/mu);
+    assert.match(output, /^Blocked: none$/mu);
+    assert.match(output, /-: no-work — No tasks await review\./u);
+  });
+});
+
+test("review rejects malformed options with exit code 2", async () => {
+  const capture = captureIo();
+  assert.equal(await main(["review", "--by"], capture.io), 2);
+  assert.match(capture.errors.join("\n"), /review accepts only --by <actor>/u);
 });
 
 test("reports run and resume option errors with exit code 2", async () => {

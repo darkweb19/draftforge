@@ -1,4 +1,5 @@
-import { access, lstat, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { access, lstat, mkdtemp, open, opendir, readFile, realpath, rm } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import type {
@@ -11,6 +12,13 @@ import type {
   WorkspacePort,
   WorkspaceProcess,
 } from "../application/workspace.js";
+import type {
+  IntegrationIntent,
+  IntegrationPreparation,
+  IntegrateAcceptedInput,
+  IntegrationResult,
+  ReviewWorkspaceSnapshot,
+} from "../application/integration.js";
 import {
   createGitProcessTransport,
   type GitProcessResult,
@@ -225,6 +233,131 @@ export class GitWorkspace implements WorkspacePort {
       return { outcome: "preserved", reason: `Git refused workspace cleanup: ${messageOf(error)}` };
     }
     return { outcome: "removed" };
+  }
+
+  /** Scheduler-only, authoritative review material from a retained workspace. */
+  async reviewSnapshot(
+    attempt: WorkspaceAttempt,
+    expectedBaseCommit: string,
+  ): Promise<ReviewWorkspaceSnapshot> {
+    const inspection = await this.inspect(attempt, expectedBaseCommit);
+    if (inspection.state !== "ready" || inspection.location === undefined) {
+      throw new WorkspaceError(inspection.reason ?? "Workspace is missing or unsafe for review.");
+    }
+    const location = inspection.location;
+    const diff = await this.authoritativePatch(location);
+    const tracked = new Set(parseNullDelimitedPaths((await this.runTrustedInspectionGit(location.path, ["ls-files", "-z"])).stdout).map(normalizeRepositoryPath));
+    const untracked: { path: string; contents: string }[] = [];
+    const scanBudget: UntrackedScanBudget = { files: 0, entries: 0, bytes: 0 };
+    const worktreeRoot = await realpath(location.path);
+    const worktreeIdentity = await captureDirectoryIdentity(worktreeRoot, worktreeRoot, true);
+    // `changedPaths` is the authoritative union (including ignored candidates
+    // outside fixed output roots), unlike --exclude-standard which can hide a
+    // planted ignored secret behind mutable ignore rules.
+    for (const path of inspection.changedPaths) {
+      const normalized = normalizeRepositoryPath(path);
+      if (tracked.has(normalized)) continue;
+      untracked.push(...await readUntrackedCandidateFiles(worktreeRoot, normalized, scanBudget, 0, [worktreeIdentity]));
+    }
+    return { location, changedPaths: inspection.changedPaths, patch: `${diff}${renderUntrackedPatch(untracked)}`, untracked };
+  }
+
+  /** Create a new branch identity while retaining the rejected worktree bytes. */
+  async prepareRepair(
+    previous: WorkspaceAttempt,
+    next: WorkspaceAttempt,
+    expectedBaseCommit: string,
+  ): Promise<WorkspaceLocation> {
+    // A crash after branch/metadata creation but before canonical review ->
+    // active must be resumable; the deterministic next identity is proof that
+    // this is the same repair, not a competing branch.
+    const recovered = await this.inspect(next, expectedBaseCommit);
+    if (recovered.state === "ready" && recovered.location !== undefined) {
+      return recovered.location;
+    }
+    const prior = await this.inspect(previous, expectedBaseCommit);
+    // checkout -b may have completed before metadata was written. The branch
+    // name is deterministic; verify it rather than creating another branch.
+    if (prior.state === "unsafe" && prior.reason?.includes(`"${workspaceBranch(next)}"`) === true) {
+      const path = workspacePath(this.#projectRoot, next);
+      const branch = (await this.runGit(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])).stdout.trim();
+      if (branch === workspaceBranch(next)) {
+        const location: WorkspaceLocation = { attempt: next, path, branch, baseCommit: expectedBaseCommit };
+        await this.writeWorkspaceMetadata(location);
+        return location;
+      }
+    }
+    if (prior.state !== "ready" || prior.location === undefined) {
+      throw new WorkspaceError(prior.reason ?? "Rejected workspace is missing or unsafe for repair.");
+    }
+    const branch = workspaceBranch(next);
+    if (await this.branchExists(branch)) {
+      throw new WorkspaceError(`Repair branch "${branch}" already exists; preserving the attempt.`);
+    }
+    await this.runGit(prior.location.path, ["checkout", "-b", branch]);
+    const location: WorkspaceLocation = {
+      attempt: next,
+      path: prior.location.path,
+      branch,
+      baseCommit: prior.location.baseCommit,
+    };
+    await this.writeWorkspaceMetadata(location);
+    return location;
+  }
+
+  /** Commit the isolated branch and capture rollback data before any merge. */
+  async prepareIntegration(input: IntegrateAcceptedInput): Promise<IntegrationPreparation> {
+    const inspection = await this.inspect(input.attempt, input.expectedBaseCommit);
+    if (inspection.state !== "ready" || inspection.location === undefined) {
+      throw new WorkspaceError(inspection.reason ?? "Accepted workspace is missing or unsafe for integration.");
+    }
+    const branchResult = await this.runGit(this.#projectRoot, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    const projectBranch = branchResult.stdout.trim();
+    if (projectBranch.length === 0) {
+      throw new WorkspaceError("Project root is detached; integration requires a project branch.");
+    }
+    const rollbackCommit = await this.#headCommit(this.#projectRoot);
+    if (await this.isDirty(this.#projectRoot)) {
+      return { status: "conflict", projectBranch, rollbackCommit, detail: "Project root is dirty; integration requires a clean worktree." };
+    }
+    try {
+      // Workers normally leave edits unstaged. Commit in their isolated branch
+      // first, then merge the immutable branch tip into the project root.
+      await this.runGit(inspection.location.path, ["add", "--all"]);
+      const staged = await this.runGit(inspection.location.path, ["diff", "--cached", "--name-only"]);
+      if (staged.stdout.trim().length > 0) {
+        await this.runGit(inspection.location.path, ["commit", "-m", `DraftForge: ${input.taskId}`]);
+      }
+      return { status: "prepared", intent: { projectBranch, rollbackCommit, branchTip: await this.#headCommit(inspection.location.path), taskId: input.taskId } };
+    } catch (error: unknown) {
+      return { status: "conflict", projectBranch, rollbackCommit, detail: messageOf(error) };
+    }
+  }
+
+  /** Merge a previously persisted intent, recovering a post-merge crash safely. */
+  async mergePreparedIntegration(intent: IntegrationIntent): Promise<IntegrationResult> {
+    try {
+      const head = await this.#headCommit(this.#projectRoot);
+      const ancestor = await this.#transport.run({ command: "git", args: ["merge-base", "--is-ancestor", intent.branchTip, head], cwd: this.#projectRoot });
+      if (ancestor.exitCode === 0) return { status: "integrated", projectBranch: intent.projectBranch, rollbackCommit: intent.rollbackCommit, integrationCommit: head };
+      if (head !== intent.rollbackCommit) return { status: "conflict", projectBranch: intent.projectBranch, rollbackCommit: intent.rollbackCommit, detail: "Project branch advanced after the recorded rollback point; refusing an inaccurate merge." };
+      if (await this.isDirty(this.#projectRoot)) return { status: "conflict", projectBranch: intent.projectBranch, rollbackCommit: intent.rollbackCommit, detail: "Project root is dirty; integration requires a clean worktree." };
+      await this.runGit(this.#projectRoot, ["merge", "--no-ff", "--no-edit", intent.branchTip]);
+      return { status: "integrated", projectBranch: intent.projectBranch, rollbackCommit: intent.rollbackCommit, integrationCommit: await this.#headCommit(this.#projectRoot) };
+    } catch (error: unknown) {
+      try { await this.runGit(this.#projectRoot, ["merge", "--abort"]); } catch { /* retained root is safer than force */ }
+      return { status: "conflict", projectBranch: intent.projectBranch, rollbackCommit: intent.rollbackCommit, detail: messageOf(error) };
+    }
+  }
+
+  async authoritativePatch(location: WorkspaceLocation): Promise<string> {
+    const scratchDirectory = await mkdtemp(join(tmpdir(), "draftforge-scratch-patch-"));
+    const scratchIndex = join(scratchDirectory, "index");
+    try {
+      await this.runScratchIndexGit(location.path, scratchIndex, ["read-tree", location.baseCommit]);
+      const result = await this.runScratchIndexGit(location.path, scratchIndex, ["diff", "--no-ext-diff", "--no-textconv", "--binary", location.baseCommit, "--"]);
+      return result.stdout;
+    } finally { await rm(scratchDirectory, { recursive: true, force: true }); }
   }
 
   async #projectBaseCommit(): Promise<string> {
@@ -714,6 +847,302 @@ function assertWithinRoot(root: string, candidate: string): void {
 
 function unsafeInspection(reason: string): WorkspaceInspection {
   return { state: "unsafe", location: undefined, dirty: false, changedPaths: [], reason };
+}
+
+/** Include untracked/ignored text in the reviewer diff as well as the scanner. */
+function renderUntrackedPatch(files: readonly { readonly path: string; readonly contents: string }[]): string {
+  return files.map((file) => {
+    const lines = file.contents.split("\n");
+    const count = lines.length;
+    return [
+      `diff --git a/${file.path} b/${file.path}`,
+      "new file mode 100644",
+      "--- /dev/null",
+      `+++ b/${file.path}`,
+      `@@ -0,0 +1,${String(count)} @@`,
+      ...lines.map((line) => `+${line}`),
+    ].join("\n");
+  }).join(files.length === 0 ? "" : "\n");
+}
+
+/** Hard limits for untrusted ignored-directory traversal during review. */
+export const MAX_UNTRACKED_SCAN_DEPTH = 32;
+export const MAX_UNTRACKED_SCAN_FILES = 1_024;
+/** Includes directories and symlinks so non-file trees cannot evade bounds. */
+export const MAX_UNTRACKED_SCAN_ENTRIES = 1_024;
+export const MAX_UNTRACKED_SCAN_BYTES = 8 * 1024 * 1024;
+export const MAX_UNTRACKED_FILE_BYTES = 1 * 1024 * 1024;
+
+/**
+ * Enumerate only regular files beneath a genuinely untracked candidate. This
+ * deliberately refuses symlinks and re-applies fixed-output exclusions rather
+ * than trusting an ignored directory label supplied by a worker-controlled
+ * worktree. `changedPaths` can represent an ignored directory as one path,
+ * but secret scanning must still see each nested file.
+ */
+async function readUntrackedCandidateFiles(
+  worktreeRoot: string,
+  projectPath: string,
+  budget: UntrackedScanBudget = { files: 0, entries: 0, bytes: 0 },
+  depth = 0,
+  ancestors: readonly DirectoryIdentity[] = [],
+): Promise<readonly { path: string; contents: string }[]> {
+  if (isFixedOutputPath(projectPath)) return [];
+  if (depth > MAX_UNTRACKED_SCAN_DEPTH) {
+    throw new WorkspaceError("Untracked review scan exceeded its maximum directory depth; review was stopped safely.");
+  }
+  const absolute = resolve(worktreeRoot, projectPath);
+  assertWithinRoot(worktreeRoot, absolute);
+  try {
+    await validateDirectoryChain(worktreeRoot, ancestors);
+    const entry = await lstat(absolute);
+    await validateDirectoryChain(worktreeRoot, ancestors);
+    if (entry.isSymbolicLink()) return [];
+    if (entry.isFile()) {
+      const identity = await captureRegularFileIdentity(worktreeRoot, absolute);
+      await validateDirectoryChain(worktreeRoot, ancestors);
+      return [await readUntrackedRegularFile(worktreeRoot, absolute, normalizeRepositoryPath(projectPath), budget, ancestors, identity)];
+    }
+    if (!entry.isDirectory()) return [];
+    const directory = await captureDirectoryIdentity(worktreeRoot, absolute);
+    const directoryChain = [...ancestors, directory];
+    // This is the boundary before descending into a child directory. It keeps
+    // the path that supplied the Dirent bound to the directory we enter.
+    await validateDirectoryChain(worktreeRoot, directoryChain);
+    const files: { path: string; contents: string }[] = [];
+    for (const child of await readSafeDirectoryEntries(worktreeRoot, directoryChain, budget)) {
+      if (child.isSymbolicLink()) continue;
+      const childPath = normalizeRepositoryPath(`${projectPath}/${child.name}`);
+      files.push(...await readUntrackedCandidateFiles(worktreeRoot, childPath, budget, depth + 1, directoryChain));
+    }
+    return files;
+  } catch (error: unknown) {
+    if (error instanceof WorkspaceError) throw error;
+    if (hasErrorCode(error, "ENOENT")) return [];
+    // An authoritative candidate that cannot be inspected is unsafe to omit:
+    // only a confirmed concurrent deletion is allowed to disappear.
+    throw new WorkspaceError("Untracked review candidate could not be inspected safely; review was stopped safely.", { cause: error });
+  }
+}
+
+interface UntrackedScanBudget { files: number; entries: number; bytes: number }
+
+interface DirectoryIdentity {
+  readonly lexicalPath: string;
+  readonly canonicalPath: string;
+  readonly dev: number;
+  readonly ino: number;
+}
+
+interface RegularFileIdentity {
+  readonly canonicalPath: string;
+  readonly dev: number;
+  readonly ino: number;
+}
+
+/**
+ * Open first with O_NOFOLLOW, then fstat and read from that descriptor. This
+ * closes the lstat->readFile symlink race. A canonical inode comparison on
+ * every platform additionally catches an intermediate-parent redirection.
+ */
+async function readUntrackedRegularFile(
+  worktreeRoot: string,
+  absolute: string,
+  projectPath: string,
+  budget: UntrackedScanBudget,
+  ancestors: readonly DirectoryIdentity[],
+  expected: RegularFileIdentity,
+): Promise<{ path: string; contents: string }> {
+  const noFollow = fsConstants.O_NOFOLLOW;
+  const hasNoFollow = typeof noFollow === "number" && noFollow !== 0;
+  await validateDirectoryChain(worktreeRoot, ancestors);
+  await invokeUntrackedScanTestHook("before-file-open", absolute);
+  let handle: Awaited<ReturnType<typeof open>>;
+  try {
+    handle = await open(absolute, fsConstants.O_RDONLY | (hasNoFollow ? noFollow : 0));
+  } catch (error: unknown) {
+    throw new WorkspaceError("Untracked review candidate could not be opened safely; review was stopped safely.", { cause: error });
+  }
+  try {
+    await invokeUntrackedScanTestHook("after-file-open", absolute);
+    await validateDirectoryChain(worktreeRoot, ancestors);
+    const canonicalBefore = await realpath(absolute);
+    assertWithinRoot(worktreeRoot, canonicalBefore);
+    const pathBefore = await lstat(canonicalBefore);
+    const initial = await handle.stat();
+    if (
+      !initial.isFile()
+      || !pathBefore.isFile()
+      || canonicalBefore !== expected.canonicalPath
+      || pathBefore.dev !== expected.dev
+      || pathBefore.ino !== expected.ino
+      || initial.dev !== expected.dev
+      || initial.ino !== expected.ino
+    ) {
+      throw new WorkspaceError("Untracked review candidate changed or escaped while it was opened; review was stopped safely.");
+    }
+    await validateDirectoryChain(worktreeRoot, ancestors);
+    if (initial.size > MAX_UNTRACKED_FILE_BYTES) throw new WorkspaceError("Untracked review candidate exceeds the per-file scan limit; review was stopped safely.");
+    if (budget.files + 1 > MAX_UNTRACKED_SCAN_FILES) throw new WorkspaceError("Untracked review scan exceeded its file-count limit; review was stopped safely.");
+    await validateDirectoryChain(worktreeRoot, ancestors);
+    const read = await readBoundedFileHandle(handle);
+    await validateDirectoryChain(worktreeRoot, ancestors);
+    const after = await handle.stat();
+    const canonicalAfter = await realpath(absolute);
+    assertWithinRoot(worktreeRoot, canonicalAfter);
+    const pathAfter = await lstat(canonicalAfter);
+    if (
+      after.size !== initial.size
+      || canonicalAfter !== expected.canonicalPath
+      || !pathAfter.isFile()
+      || pathAfter.dev !== expected.dev
+      || pathAfter.ino !== expected.ino
+      || after.dev !== expected.dev
+      || after.ino !== expected.ino
+    ) {
+      throw new WorkspaceError("Untracked review candidate changed while it was scanned; review was stopped safely.");
+    }
+    await validateDirectoryChain(worktreeRoot, ancestors);
+    if (budget.bytes + read.bytes > MAX_UNTRACKED_SCAN_BYTES) throw new WorkspaceError("Untracked review scan exceeded its aggregate byte limit; review was stopped safely.");
+    budget.files += 1;
+    budget.bytes += read.bytes;
+    return { path: projectPath, contents: read.contents };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readBoundedFileHandle(handle: Awaited<ReturnType<typeof open>>): Promise<{ readonly contents: string; readonly bytes: number }> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const capacity = Math.min(64 * 1024, MAX_UNTRACKED_FILE_BYTES + 1 - total);
+    if (capacity <= 0) throw new WorkspaceError("Untracked review candidate exceeds the per-file scan limit; review was stopped safely.");
+    const buffer = Buffer.allocUnsafe(capacity);
+    const result = await handle.read(buffer, 0, capacity, total);
+    if (result.bytesRead === 0) break;
+    total += result.bytesRead;
+    if (total > MAX_UNTRACKED_FILE_BYTES) throw new WorkspaceError("Untracked review candidate exceeds the per-file scan limit; review was stopped safely.");
+    chunks.push(buffer.subarray(0, result.bytesRead));
+  }
+  return { contents: Buffer.concat(chunks).toString("utf8"), bytes: total };
+}
+
+async function readSafeDirectoryEntries(
+  worktreeRoot: string,
+  ancestors: readonly DirectoryIdentity[],
+  budget: UntrackedScanBudget,
+): Promise<readonly import("node:fs").Dirent[]> {
+  const current = ancestors.at(-1);
+  if (current === undefined) throw new WorkspaceError("Untracked review directory has no identity chain; review was stopped safely.");
+  await validateDirectoryChain(worktreeRoot, ancestors);
+  const directory = await opendir(current.lexicalPath);
+  await validateDirectoryChain(worktreeRoot, ancestors);
+  const entries: import("node:fs").Dirent[] = [];
+  try {
+    for (;;) {
+      await validateDirectoryChain(worktreeRoot, ancestors);
+      const entry = await directory.read();
+      await validateDirectoryChain(worktreeRoot, ancestors);
+      if (entry === null) break;
+      if (budget.entries + 1 > MAX_UNTRACKED_SCAN_ENTRIES) {
+        throw new WorkspaceError("Untracked review scan exceeded its directory-entry limit; review was stopped safely.");
+      }
+      budget.entries += 1;
+      entries.push(entry);
+    }
+  } finally {
+    await directory.close().catch(() => undefined);
+  }
+  await validateDirectoryChain(worktreeRoot, ancestors);
+  return entries.sort((left, right) => left.name.localeCompare(right.name, "en"));
+}
+
+async function captureDirectoryIdentity(
+  worktreeRoot: string,
+  lexicalPath: string,
+  permitRoot = false,
+): Promise<DirectoryIdentity> {
+  const canonicalBefore = await realpath(lexicalPath);
+  assertAtOrWithinRoot(worktreeRoot, canonicalBefore, permitRoot);
+  const entry = await lstat(lexicalPath);
+  const canonicalAfter = await realpath(lexicalPath);
+  assertAtOrWithinRoot(worktreeRoot, canonicalAfter, permitRoot);
+  const canonicalEntry = await lstat(canonicalAfter);
+  if (
+    !entry.isDirectory()
+    || entry.isSymbolicLink()
+    || canonicalBefore !== canonicalAfter
+    || !canonicalEntry.isDirectory()
+    || canonicalEntry.dev !== entry.dev
+    || canonicalEntry.ino !== entry.ino
+  ) {
+    throw new WorkspaceError("Untracked review directory changed before traversal; review was stopped safely.");
+  }
+  return { lexicalPath, canonicalPath: canonicalAfter, dev: entry.dev, ino: entry.ino };
+}
+
+async function captureRegularFileIdentity(worktreeRoot: string, lexicalPath: string): Promise<RegularFileIdentity> {
+  const canonicalBefore = await realpath(lexicalPath);
+  assertWithinRoot(worktreeRoot, canonicalBefore);
+  const entry = await lstat(lexicalPath);
+  const canonicalAfter = await realpath(lexicalPath);
+  assertWithinRoot(worktreeRoot, canonicalAfter);
+  const canonicalEntry = await lstat(canonicalAfter);
+  if (
+    !entry.isFile()
+    || canonicalBefore !== canonicalAfter
+    || !canonicalEntry.isFile()
+    || canonicalEntry.dev !== entry.dev
+    || canonicalEntry.ino !== entry.ino
+  ) {
+    throw new WorkspaceError("Untracked review candidate changed before it was opened; review was stopped safely.");
+  }
+  return { canonicalPath: canonicalAfter, dev: entry.dev, ino: entry.ino };
+}
+
+async function validateDirectoryChain(worktreeRoot: string, ancestors: readonly DirectoryIdentity[]): Promise<void> {
+  for (let index = 0; index < ancestors.length; index += 1) {
+    const identity = ancestors[index];
+    if (identity === undefined) continue;
+    const isRoot = index === 0 && identity.lexicalPath === worktreeRoot;
+    const current = await captureDirectoryIdentity(worktreeRoot, identity.lexicalPath, isRoot);
+    if (
+      current.canonicalPath !== identity.canonicalPath
+      || current.dev !== identity.dev
+      || current.ino !== identity.ino
+    ) {
+      throw new WorkspaceError("Untracked review ancestor directory changed during traversal; review was stopped safely.");
+    }
+  }
+}
+
+function assertAtOrWithinRoot(root: string, candidate: string, permitRoot: boolean): void {
+  if (permitRoot && root === candidate) return;
+  assertWithinRoot(root, candidate);
+}
+
+type UntrackedScanTestHook = (event: "before-file-open" | "after-file-open", lexicalPath: string) => void | Promise<void>;
+let untrackedScanTestHook: UntrackedScanTestHook | undefined;
+
+/** @internal Test-only deterministic race seam; it is not exported from the package entry point. */
+export function setUntrackedScanTestHookForTests(hook: UntrackedScanTestHook | undefined): () => void {
+  const previous = untrackedScanTestHook;
+  untrackedScanTestHook = hook;
+  return () => { untrackedScanTestHook = previous; };
+}
+
+async function invokeUntrackedScanTestHook(event: "before-file-open" | "after-file-open", lexicalPath: string): Promise<void> {
+  await untrackedScanTestHook?.(event, lexicalPath);
+}
+
+
+function isFixedOutputPath(path: string): boolean {
+  return ALLOWED_UNTRACKED_ROOTS.some((root) => path === root || path.startsWith(`${root}/`));
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
 async function pathExists(path: string): Promise<boolean> {

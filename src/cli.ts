@@ -9,8 +9,11 @@ import { loadProjectConfig } from "./config/config.js";
 import { runInit, type InitOptions } from "./commands/init.js";
 import { runPlan, type PlanOptions, type PlanResult } from "./commands/plan.js";
 import { runExecution, type RunOptions } from "./commands/run.js";
+import { runReview } from "./commands/review.js";
 import { readProjectState, writeSession } from "./state/files.js";
 import { inspectProjectHealth } from "./state/health.js";
+import { readExecutionAttemptManifest } from "./state/execution.js";
+import { readUsageAggregate } from "./state/usage.js";
 
 const VERSION = "0.0.0";
 
@@ -63,11 +66,29 @@ export async function main(
 
     case "status": {
       try {
-        const state = await readProjectState(resolve(cwd));
+        const root = resolve(cwd);
+        const state = await readProjectState(root);
         io.out(`${state.project.name}: ${state.workflow.phaseId} / ${state.workflow.stage} / ${state.workflow.status}`);
         io.out(`Current task: ${state.workflow.currentTask ?? "none"}`);
         io.out(`Next task: ${state.workflow.nextTask ?? "none"}`);
-        const checks = await inspectProjectHealth(resolve(cwd));
+        for (const task of state.tasks) {
+          if (task.review !== null) {
+            io.out(`Review ${task.id}: repairs=${String(task.review.repairAttempts)}, classification=${task.review.lastClassification ?? "none"}`);
+          }
+          if (task.attempt !== null) {
+            try {
+              const manifest = await readExecutionAttemptManifest(root, task.attempt);
+              if (manifest.integration !== null && manifest.integration !== undefined) {
+                io.out(`Integration ${task.id}: rollback=${manifest.integration.rollbackCommit}, commit=${manifest.integration.integrationCommit ?? "none"}`);
+              }
+              const usage = await readUsageAggregate(root, task.attempt.runId);
+              io.out(`Usage ${task.attempt.runId}: tokens=${usage.totalTokens ?? "unknown"}, cost=${usage.costUsd ?? "unknown"}`);
+            } catch {
+              // Status remains useful even if a retained crash artifact is unreadable.
+            }
+          }
+        }
+        const checks = await inspectProjectHealth(root);
         for (const check of checks) {
           io.out(`[${check.status.toUpperCase()}] ${check.name}: ${check.detail}`);
         }
@@ -122,6 +143,18 @@ export async function main(
           error instanceof WorkerCapabilityError
           ? 2
           : 1;
+      }
+    }
+
+    case "review": {
+      try {
+        const actor = parseReviewArgs(args.slice(1));
+        const result = await runReview(resolve(cwd), actor === undefined ? {} : { actor });
+        for (const line of result.lines) io.out(line);
+        return result.exitCode;
+      } catch (error: unknown) {
+        io.error(toErrorMessage(error));
+        return error instanceof CliUsageError ? 2 : 1;
       }
     }
 
@@ -253,6 +286,12 @@ function parseRunArgs(mode: ExecutionMode, args: readonly string[]): RunOptions 
   }
 
   return { mode, ...(actor === undefined ? {} : { actor }) };
+}
+
+function parseReviewArgs(args: readonly string[]): string | undefined {
+  if (args.length === 0) return undefined;
+  if (args.length === 2 && args[0] === "--by" && args[1] !== undefined && !args[1].startsWith("--") && args[1].trim().length > 0) return args[1];
+  throw new CliUsageError("review accepts only --by <actor>.");
 }
 
 const PLAN_USAGE = [
@@ -506,6 +545,8 @@ Commands:
   resume            Reconcile interrupted attempts and continue them in their
                     own worktrees; claims no new work
                       --by <actor>   Recorded dispatch identity
+  review            Run machine-first review, bounded repairs, and integration
+                      --by <actor>   Recorded reviewer identity
   handoff           Regenerate SESSION.md from canonical state
   help              Show this help
 

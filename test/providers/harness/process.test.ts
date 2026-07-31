@@ -55,6 +55,20 @@ test("real process transport is fakeable and captures stdout/stderr without a sh
   assert.equal(result.exitCode, 0);
 });
 
+test("process transport forwards an explicitly supplied replacement environment", async () => {
+  const child = fakeChild();
+  let received: NodeJS.ProcessEnv | undefined;
+  const transport = createProcessTransport({
+    spawn(_command, _args, options) {
+      received = options.env as NodeJS.ProcessEnv | undefined;
+      queueMicrotask(() => { (child.stdout as PassThrough).end("ok"); (child.stderr as PassThrough).end(); child.emit("close", 0, null); });
+      return child;
+    },
+  });
+  await transport.run({ command: "node", args: [], stdin: "", env: { PATH: "/safe/bin", LANG: "C" } });
+  assert.deepEqual(received, { PATH: "/safe/bin", LANG: "C" });
+});
+
 test("Windows cmd shims use cmd.exe with escaped arguments and no shell expansion", async () => {
   const child = fakeChild();
   let spawnCall:

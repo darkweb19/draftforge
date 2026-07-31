@@ -8,10 +8,10 @@
   "workflow": {
     "phaseId": "phase-05",
     "phaseName": "Review and recovery",
-    "stage": "implementation",
-    "status": "in_progress",
+    "stage": "complete",
+    "status": "complete",
     "currentTask": null,
-    "nextTask": "P05-T05"
+    "nextTask": null
   },
   "phases": [
     {
@@ -42,7 +42,7 @@
     {
       "id": "phase-05",
       "name": "Review and recovery",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "id": "phase-06",
@@ -252,7 +252,7 @@
     {
       "id": "P05-T05",
       "title": "Review command, bounded repair loop, integration, and Phase 5 gate",
-      "status": "ready",
+      "status": "done",
       "taskFile": ".draftforge/tasks/P05-T05.md",
       "dependsOn": [
         "P05-T02",
@@ -276,9 +276,9 @@
     "docs/decisions/0010-review-recovery-contract.md"
   ],
   "handoff": {
-    "updatedAt": "2026-07-30T00:00:00.000Z",
-    "updatedBy": "claude",
-    "summary": "Phase 5 (Review and recovery) is in implementation with P05-T01 through P05-T04 done and only P05-T05 remaining. T02 supplies verification-command extraction, the two-shape command allowlist, redacted transcripts, and the secret scanner; T03 supplies the reviewer prompt, the strict verdict envelope, and the machine-first decision table; T04 supplies reported-never-estimated usage accounting, the run ledger, and budget enforcement. Every one of the four delegated tasks arrived with a green self-report and a real defect that the report did not mention, so treat a delegated green as a claim to verify rather than evidence. The four found and fixed at review were: three interior paths in recoverStaleLock that still hard-refused on transient contention; classifyMachineFailure failing OPEN when a failed verification carried a null classification, which would have let an accept verdict accept failed work; the secret scanner throwing on any deletion-only diff because '+++ /dev/null' yields a null path; and a usage assertion added to the shared adapter contract that re-ran a single-outcome success fixture and broke all four adapter contract suites. Two of the delegated agents died mid-write on an account session limit, T04 needing two mechanical repairs and T02 having written no tests at all, so its two test files were re-delegated separately. Full gate verified green at integration on macOS: 440 tests, 435 pass, 0 fail, 5 expected environment skips, with typecheck, lint, session check, and build clean. P05-T05 remains: the draftforge review command, the bounded repair loop, merge-on-accept integration with a recorded rollback point, injected-failure fixtures, the docs updates, and the phase exit gate through the built CLI. Note that the reviewer 'block' verdict over passing machine evidence currently maps to classification 'unknown'; that is a provisional lead decision awaiting the maintainer, and changing it means amending ADR 0010 rather than just editing code.",
+    "updatedAt": "2026-07-31T04:52:07.000Z",
+    "updatedBy": "codex",
+    "summary": "Phase 5 (Review and recovery) is complete. P05-T05 adds the machine-first draftforge review command, persisted reviewer leases and crash reconciliation, bounded repair attempts against retained worktrees, merge-on-accept integration with a durable rollback point, reported usage enforcement, CLI/status summaries, and deterministic failure and dependency fixtures. Independent Terra QA rejected the first ignored-directory secret-scan repair until recursive traversal was bounded by depth, entry count, file count, per-file bytes, and aggregate bytes; switched to incremental enumeration; and gained canonical path plus device/inode identity checks across the full ancestor chain and opened file descriptor. The final independent verdict is ACCEPT. The integrated gate is green on macOS: 466 tests, 461 pass, 0 fail, 5 expected environment skips, with typecheck, lint, session check, build, git diff check, and built CLI run/review/resume/status fixtures passing. Phase 6 (Release) is next. The reviewer 'block' verdict over passing machine evidence still maps to classification 'unknown'; changing that provisional decision requires amending ADR 0010.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
@@ -317,16 +317,19 @@
       "Acceptance integrates: scope and secrets are re-checked, the project branch head is recorded as a rollback point, the attempt branch is merged from a clean project root, and only then does the task reach done. Rollback stays documented guidance, not automation.",
       "Usage accounting is reported, never estimated: unpriced models and harness adapters record unknown, and an exceeded declared budget refuses the call rather than truncating work.",
       "Repay the two Phase 4 debts as the Phase 5 foundation (P05-T01): the project lock waits with bounded retry, DispatchGate is deleted, and the worker seam accepts a running manifest so resume stops rewinding one.",
-      "Decompose Phase 5 as foundation first (P05-T01), then three path-disjoint parallel tasks - verification and secret scanning (P05-T02), reviewer prompt and verdict (P05-T03), usage accounting (P05-T04) - then the review command, repair loop, integration, and exit gate (P05-T05)."
+      "Decompose Phase 5 as foundation first (P05-T01), then three path-disjoint parallel tasks - verification and secret scanning (P05-T02), reviewer prompt and verdict (P05-T03), usage accounting (P05-T04) - then the review command, repair loop, integration, and exit gate (P05-T05).",
+      "Serialize only durable review claims and state transitions; never hold the project lock across verification, secret scanning, a reviewer or worker model call, or a Git merge.",
+      "Persist a reviewer lease and integration intent before their external side effects so crash recovery neither calls a reviewer twice nor merges accepted work twice.",
+      "Treat ignored untracked trees as untrusted input: enumerate incrementally with hard entry, file, depth, and byte caps, and bind every traversal step to canonical path plus device/inode identity before content enters secret scanning or reviewer context."
     ],
-    "openQuestions": [],
+    "openQuestions": [
+      "Should a reviewer block verdict over passing machine evidence keep the terminal unknown classification, or should ADR 0010 add a dedicated taxonomy value?"
+    ],
     "blockers": [],
     "nextActions": [
-      "Dispatch P05-T02, P05-T03, and P05-T04 together; they are ready and path-disjoint, and P05-T04 is the only one touching src/providers/.",
-      "P05-T02 must define its own injected diff input (changed paths plus patch text) in src/domain/verification.ts; WorkspacePort has no diff-text method and no Phase 5 task owns src/application/workspace.ts.",
-      "After the three parallel tasks are accepted, implement P05-T05: review command, bounded repair loop, integration with a recorded rollback point, injected-failure fixtures, and the Phase 5 exit gate through the built CLI.",
+      "Open Phase 6 (Release): record any release-specific ADRs, define its task DAG, and make only the approved roots ready.",
       "Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli. Phase 4 proved this with deterministic fake runners only, and no harness is installed in this shell.",
-      "During P05-T05, confirm that a dependent task's worktree base commit actually contains its integrated predecessor's work; that is the check that proves integration closed the DAG gap."
+      "Decide whether reviewer block over passing machine evidence needs a dedicated ADR 0010 classification before the release contract is frozen."
     ],
     "gotchas": [
       "`withProjectLock` now waits rather than refusing: one deadline is computed at entry (DEFAULT_LOCK_WAIT_TIMEOUT_MS 30s, DEFAULT_LOCK_POLL_INTERVAL_MS 25ms, both overridable per call) and every transient condition retries via the internal RetryableLockContention signal. Stale locks are still broken immediately. If you add a new refusal path in lock.ts, make it retryable unless it is genuinely unrecoverable - a hard throw there silently reintroduces the contention refusal.",
@@ -360,7 +363,11 @@
       "State schema 3 must migrate from both 1 and 2, and `.draftforge/schema/*.json` must stay byte-identical to `templates/schema/*.json` (test/templates.test.ts enforces it). Validators, migration, fixtures, and both schema copies move together.",
       "The reviewer role is text-only, so unlike the worker role it works on API adapters and may use transparent retry; a reviewer call has no workspace side effects.",
       "config already ships `roles.reviewer` and `limits.maxRepairAttempts`, so Phase 5 needs no config schema change - read the existing limits rather than adding new ones.",
-      "Secret-scan tests must plant synthetic credentials only, and must assert the value never appears in findings, events, or evidence. A test that prints what it planted defeats the invariant it is guarding."
+      "Secret-scan tests must plant synthetic credentials only, and must assert the value never appears in findings, events, or evidence. A test that prints what it planted defeats the invariant it is guarding.",
+      "`draftforge review` reconciles persisted worker results before filtering review tasks, and a persisted verdict is reused rather than calling the reviewer again.",
+      "A short-lived durable reviewer lease prevents concurrent review processes from duplicating a model call; stale ownership is recovered only after process liveness is disproven.",
+      "Integration intent is written before merge. Recovery accepts an already-merged branch tip, but refuses when the project branch has advanced away from the recorded rollback point.",
+      "Ignored untracked directories are secret-scanned recursively but fail closed above depth 32, 1,024 entries, 1,024 files, 1 MiB per file, or 8 MiB aggregate. Incremental enumeration and ancestor/file identity checks prevent resource exhaustion and symlink-swap substitution."
     ]
   }
 }

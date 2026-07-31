@@ -33,6 +33,9 @@ reference; the detailed manifest, event log, and result artifact live under
 - The project lock is held only to claim an attempt, to finalize a result, and
   to render the handoff. Worktree creation and model calls always run with the
   lock released, which is what makes concurrency safe.
+- Lock contention waits with a bounded retry. A second `run`, `resume`, or
+  `review` serializes behind the first transition instead of being refused;
+  command execution, scanning, reviewer calls, and merges remain outside it.
 - `roles.worker.maxConcurrency` caps the number of simultaneously `active`
   tasks. Attempts that are already active count toward that cap.
 - Two ready tasks are never dispatched together when their owned paths overlap,
@@ -122,6 +125,40 @@ A worker result advances a task only to `review`, never to `done`. Acceptance is
 a separate reviewer decision (Phase 5). Nothing in `run` or `resume` marks a
 task `done`, and a successor task stays blocked while its predecessor is
 `active` or `review`; only an accepted `done` predecessor releases it.
+
+## Review, repair, and integration
+
+`review` is machine-first. For every review attempt it persists the task
+contract's allowlisted verification result, authoritative scope result, and
+secret scan before a reviewer verdict is used for a transition. The only
+executable verification forms are `npm run <script>` and `node <relative-path>`
+with literal arguments. Shell syntax, redirects, pipes, command substitution,
+flags, absolute/traversing paths, and other programs are contract violations.
+Verification runs in the attempt worktree through the shell-free process
+boundary with a minimal environment that excludes provider credentials.
+
+Secret findings are locators only: `{ruleId, path, line}`. The matched value,
+its substrings, and surrounding line text are never written to state, events,
+or evidence. A secret detection, scope violation, contract violation, timeout,
+or integration conflict is terminal for automation.
+
+Only `verification-failure` and `review-rejection` can repair. The transition
+is `review -> active` for a new durable attempt that keeps the rejected
+worktree; its prompt contains only persisted actionable findings. The task's
+repair counter is durable and bounded by `limits.maxRepairAttempts`; exhausted
+work remains blocked until a human explicitly reopens it.
+
+Before accepting, DraftForge repeats the scope and secret checks, requires a
+clean project root, records its branch head as the rollback point, and merges
+the attempt branch. The manifest records the integration commit before the task
+becomes `done`. A dirty root or conflict aborts the merge and blocks while
+retaining the workspace. Rollback is intentionally manual: use the surfaced
+rollback point or integration commit only after operator review; DraftForge
+never resets or reverts automatically.
+
+Usage is reported, not estimated. The run ledger aggregates provider-reported
+tokens and derived cost only for known prices. Harness calls and unpriced models
+remain `unknown`; prompts, completions, and credentials never enter the ledger.
 
 ## Architect rules
 

@@ -24,26 +24,6 @@ export interface VerificationRunInput {
   readonly env?: NodeJS.ProcessEnv;
 }
 
-/**
- * `ProcessRequest` (src/providers/harness/process.ts) carries no `env` field
- * because harness adapters intentionally inherit the full parent environment
- * to authenticate CLI tools. Verification needs the opposite: an explicit,
- * minimal, replacement environment. This mirrors the established
- * `GitProcessRequest.env` overlay (src/workspaces/process.ts) — a
- * per-invocation environment carried on the request rather than a mutation of
- * global `process.env`, which would race concurrent attempts — except this one
- * is a full replacement, never a merge onto the ambient environment. A
- * transport built by `createProcessTransport` does not yet read this field
- * (it does not accept an `env` spawn option today), so real enforcement
- * requires either an env-aware `spawn` override supplied when that transport
- * is constructed, or a future extension of `ProcessRequest` itself; neither is
- * owned by this task. The injected test fake honors it, which is what this
- * module's tests verify.
- */
-interface VerificationProcessRequest extends ProcessRequest {
-  readonly env: NodeJS.ProcessEnv;
-}
-
 /** Truncated transcripts keep the head and tail; failures print at the end. */
 const MAX_TRANSCRIPT_BYTES = 64 * 1024;
 const TRUNCATION_MARKER = "\n...[transcript truncated]...\n";
@@ -144,7 +124,7 @@ async function runOneCommand(
     timedOut = true;
     controller.abort();
   }, timeoutMs);
-  const request: VerificationProcessRequest = {
+  const request: ProcessRequest = {
     command: command.program,
     args: command.args,
     stdin: "",

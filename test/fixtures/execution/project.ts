@@ -379,6 +379,14 @@ export const CLI_VARIANTS = {
     maxConcurrency: 2,
     tasks: [{ ...ALPHA, status: "done" }, { ...BETA, status: "review" }],
   },
+  /** Safe for the built `review` CLI gate: no reviewer/provider call occurs. */
+  "review-no-work": {
+    name: "Review no-work sample",
+    approved: true,
+    workerAdapter: "claude-cli",
+    maxConcurrency: 2,
+    tasks: [{ ...ALPHA, status: "done" }, { ...BETA, status: "done" }],
+  },
 } as const satisfies Record<string, ProjectSpec>;
 
 export type CliVariant = keyof typeof CLI_VARIANTS;

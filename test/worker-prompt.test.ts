@@ -62,6 +62,20 @@ test("worker prompt includes only approved bounded context and explicit workspac
   }
 });
 
+test("worker prompt adds persisted repair findings only when a repair context exists", async () => {
+  const root = await mkdtemp(join(tmpdir(), "draftforge-worker-repair-prompt-"));
+  try {
+    await mkdir(join(root, "docs", "decisions"), { recursive: true });
+    await writeFile(join(root, "AGENTS.md"), "rules", "utf8");
+    await writeFile(join(root, "docs", "context.md"), "context", "utf8");
+    await writeFile(join(root, "docs", "decisions", "0001-test.md"), "adr", "utf8");
+    const manifest = createExecutionAttemptManifest({ reference: { runId: "run-01", attemptId: "attempt-01" }, taskId: contract.id, contractHash: "c".repeat(64), now: new Date(), budget: { timeMinutes: 5 } });
+    const request = await buildWorkerPrompt({ worktreeRoot: root, contract, manifest, workspace: location(root), repairFindings: [{ path: "src/worker.ts", line: 8, summary: "Handle the rejected case." }] });
+    assert.match(request.user, /# Repair findings/u);
+    assert.match(request.user, /src\/worker\.ts:8: Handle the rejected case\./u);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("worker prompt rejects lexical escapes and symlinks whose real path leaves the worktree", async (t) => {
   const parent = await mkdtemp(join(tmpdir(), "draftforge-worker-boundary-"));
   const root = join(parent, "worktree");

@@ -53,6 +53,9 @@ export interface ExecuteClaimedWorkerInput {
   readonly env?: NodeJS.ProcessEnv;
   readonly agentRulePaths?: readonly string[];
   readonly caseSensitive?: boolean;
+  /** A repair attempt deliberately continues in the retained rejected worktree. */
+  readonly repairWorkspace?: WorkspaceLocation;
+  readonly repairFindings?: readonly { readonly summary: string; readonly path: string; readonly line?: number }[];
 }
 
 export interface WorkerExecutionOutcome {
@@ -173,7 +176,14 @@ export async function executeClaimedWorker(
   let stage: WorkerExecutionStage = "workspace-setup";
 
   try {
-    location = await input.workspace.createOrRecover(workspaceAttempt);
+    location = input.repairWorkspace ?? await input.workspace.createOrRecover(workspaceAttempt);
+    if (
+      location.attempt.runId !== workspaceAttempt.runId ||
+      location.attempt.taskId !== workspaceAttempt.taskId ||
+      location.attempt.attemptId !== workspaceAttempt.attemptId
+    ) {
+      throw new Error("Repair workspace identity does not match the new attempt.");
+    }
     if (initialLifecycle === "running" && location.baseCommit !== initialBaseCommit) {
       // A resumed attempt trusts its recorded base commit; a mismatch means the
       // recovered workspace is not the one this attempt was claimed against, so
@@ -196,6 +206,7 @@ export async function executeClaimedWorker(
       manifest: runningManifest,
       workspace: location,
       ...(input.agentRulePaths === undefined ? {} : { agentRulePaths: input.agentRulePaths }),
+      ...(input.repairFindings === undefined ? {} : { repairFindings: input.repairFindings }),
     });
     await assertClaimStillCurrent(
       input.root,

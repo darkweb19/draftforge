@@ -30,7 +30,7 @@ Provider packages may not be imported by domain or application code. Structured 
 
 `.draftforge/state.json` is a versioned snapshot. Each accepted transition also appends a redacted event under `.draftforge/runs/<run-id>/events.jsonl`. The snapshot makes startup fast; the event trail explains what happened and supports recovery.
 
-Filesystem transitions take an exclusive project lock so concurrent writers cannot lose an update. Event records are appended before the atomic snapshot and generated handoff writes, preserving a replayable trail if snapshot persistence is interrupted.
+Filesystem transitions take an exclusive project lock so concurrent writers cannot lose an update. Contending commands wait with a bounded retry; the lock is never held over a worktree operation, verification command, scan, model call, or merge. Event records are appended before the atomic snapshot and generated handoff writes, preserving a replayable trail if snapshot persistence is interrupted.
 
 `SESSION.md` is derived from state. Agents read it for orientation, but software reads JSON. If they disagree, JSON wins and `draftforge handoff` regenerates the Markdown file.
 
@@ -51,7 +51,26 @@ Workers return a result envelope containing status, summary, changed paths, comm
 
 ## Review contract
 
-The reviewer checks the task contract, diff, test evidence, scope, and policy compliance. It may accept, reject with a bounded repair request, or block with a reason. Only acceptance advances the task to `done`.
+The review command first produces durable machine evidence from the retained
+worktree: allowlisted shell-free verification (`npm run <script>` or `node
+<relative-path>` with literal arguments only), authoritative Git-derived scope,
+and a diff/untracked-file secret scan. Scanner output is locator-only (rule ID,
+repository-relative path, line), never credential content. The reviewer reads
+that evidence and returns one strict verdict envelope. It may reject passing
+work but cannot override a failed machine check.
+
+Only verification failures and reviewer rejections enter the bounded repair
+loop. Each repair is a new durable attempt against the retained worktree and
+contains only persisted findings in the worker prompt; `limits.maxRepairAttempts`
+is enforced in canonical task state. All other classifications block.
+
+Acceptance re-runs scope and secret checks, records the clean project branch
+head as a rollback point, merges the accepted attempt branch, records the merge
+commit, and only then transitions the task to `done`. A dirty root or merge
+conflict blocks and retains the worktree. Rollback is documented operator
+guidance, never an automated reset. Attempt and run usage are provider-reported
+values; unknown harness or unpriced-model use remains unknown rather than being
+estimated.
 
 ## Process isolation
 
