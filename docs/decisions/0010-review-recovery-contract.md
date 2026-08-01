@@ -37,6 +37,12 @@ recovery, so it is durable rather than re-derived by scanning events. Repairable
 classifications are `verification-failure` and `review-rejection`; everything
 else is terminal for automation.
 
+A reviewer `block` verdict over otherwise passing machine evidence maps to
+`unknown`. Unlike `reject`, `block` does not assert an actionable review defect;
+it says the reviewer cannot safely decide. Keeping that terminal uncertainty in
+the existing closed taxonomy is more accurate than inventing a release-only
+classification, and avoids a schema migration with no new recovery behavior.
+
 Repair is bounded and durable. A repairable rejection returns the task from
 `review` to `active` for a new attempt against the same worktree, carrying the
 findings into the worker prompt, and increments a repair counter stored on the

@@ -89,5 +89,7 @@ Deliverables:
 - Cross-platform package, executable smoke tests, and upgrade/migration strategy.
 - GitHub Actions for checks and package provenance.
 - Installation, provider setup, examples, troubleshooting, and security documentation.
+- One exact npm tarball tested through its installed binary on Windows, macOS,
+  and Linux before tag-gated publication.
 
 Exit gate: clean-machine smoke tests pass on Windows, macOS, and Linux; the package can scaffold and resume an example project.

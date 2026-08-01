@@ -6,12 +6,12 @@
     "draftFile": "docs/PRODUCT_SPEC.md"
   },
   "workflow": {
-    "phaseId": "phase-05",
-    "phaseName": "Review and recovery",
-    "stage": "complete",
-    "status": "complete",
+    "phaseId": "phase-06",
+    "phaseName": "Release",
+    "stage": "implementation",
+    "status": "in_progress",
     "currentTask": null,
-    "nextTask": null
+    "nextTask": "P06-T01"
   },
   "phases": [
     {
@@ -47,7 +47,7 @@
     {
       "id": "phase-06",
       "name": "Release",
-      "status": "not_started"
+      "status": "in_progress"
     }
   ],
   "tasks": [
@@ -261,6 +261,63 @@
       ],
       "attempt": null,
       "review": null
+    },
+    {
+      "id": "P06-T01",
+      "title": "Portable npm artifact and installed executable smoke",
+      "status": "ready",
+      "taskFile": ".draftforge/tasks/P06-T01.md",
+      "dependsOn": [
+        "P05-T05"
+      ],
+      "attempt": null,
+      "review": null
+    },
+    {
+      "id": "P06-T02",
+      "title": "Explicit project upgrade, backup, and compatibility fixtures",
+      "status": "backlog",
+      "taskFile": ".draftforge/tasks/P06-T02.md",
+      "dependsOn": [
+        "P06-T01"
+      ],
+      "attempt": null,
+      "review": null
+    },
+    {
+      "id": "P06-T03",
+      "title": "Installation, provider, example, troubleshooting, and security guides",
+      "status": "backlog",
+      "taskFile": ".draftforge/tasks/P06-T03.md",
+      "dependsOn": [
+        "P06-T01"
+      ],
+      "attempt": null,
+      "review": null
+    },
+    {
+      "id": "P06-T04",
+      "title": "Cross-platform CI, scoped publication, and npm provenance",
+      "status": "backlog",
+      "taskFile": ".draftforge/tasks/P06-T04.md",
+      "dependsOn": [
+        "P06-T01"
+      ],
+      "attempt": null,
+      "review": null
+    },
+    {
+      "id": "P06-T05",
+      "title": "Release candidate integration and Phase 6 exit gate",
+      "status": "backlog",
+      "taskFile": ".draftforge/tasks/P06-T05.md",
+      "dependsOn": [
+        "P06-T02",
+        "P06-T03",
+        "P06-T04"
+      ],
+      "attempt": null,
+      "review": null
     }
   ],
   "decisions": [
@@ -273,12 +330,13 @@
     "docs/decisions/0007-recorded-plan-revision.md",
     "docs/decisions/0008-provider-adapter-contract.md",
     "docs/decisions/0009-durable-execution-attempts.md",
-    "docs/decisions/0010-review-recovery-contract.md"
+    "docs/decisions/0010-review-recovery-contract.md",
+    "docs/decisions/0011-release-artifact-upgrades-and-provenance.md"
   ],
   "handoff": {
-    "updatedAt": "2026-07-31T04:52:07.000Z",
+    "updatedAt": "2026-08-01T14:12:52.000Z",
     "updatedBy": "codex",
-    "summary": "Phase 5 (Review and recovery) is complete. P05-T05 adds the machine-first draftforge review command, persisted reviewer leases and crash reconciliation, bounded repair attempts against retained worktrees, merge-on-accept integration with a durable rollback point, reported usage enforcement, CLI/status summaries, and deterministic failure and dependency fixtures. Independent Terra QA rejected the first ignored-directory secret-scan repair until recursive traversal was bounded by depth, entry count, file count, per-file bytes, and aggregate bytes; switched to incremental enumeration; and gained canonical path plus device/inode identity checks across the full ancestor chain and opened file descriptor. The final independent verdict is ACCEPT. The integrated gate is green on macOS: 466 tests, 461 pass, 0 fail, 5 expected environment skips, with typecheck, lint, session check, build, git diff check, and built CLI run/review/resume/status fixtures passing. Phase 6 (Release) is next. The reviewer 'block' verdict over passing machine evidence still maps to classification 'unknown'; changing that provisional decision requires amending ADR 0010.",
+    "summary": "Phase 6 (Release) is open and planned; no Phase 6 implementation has started. Two independent release audits inspected the repository and an actual locally packed tarball. The package builds and installs, but its npm-linked executable exits 0 without running because src/cli.ts compares the .bin symlink URL with the resolved module URL; direct node dist/cli.js tests hid the defect. The package is also private, version 0.0.0 is duplicated in source, packing can rely on stale ignored dist output, no GitHub Actions exist, migration is only in-memory, and release/operator documentation is incomplete. ADR 0011 therefore makes the exact npm tarball the tested artifact, keeps ordinary reads non-persisting, requires an explicit locked and recoverable upgrade, and uses a real Windows/macOS/Linux Node 22 matrix plus tag-gated npm trusted publishing with provenance. P06-T01 is ready and fixes the installed artifact first. P06-T02 (upgrade safety), P06-T03 (docs and example), and P06-T04 (CI and provenance) follow independently, then P06-T05 joins them at the clean-machine release gate. The unscoped draftforge npm name is occupied by an unrelated package and npm is not authenticated on this machine, so public scope selection is deferred without blocking P06-T01 through P06-T03. ADR 0010 now freezes reviewer block over passing evidence as terminal unknown for the initial release.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
@@ -320,16 +378,24 @@
       "Decompose Phase 5 as foundation first (P05-T01), then three path-disjoint parallel tasks - verification and secret scanning (P05-T02), reviewer prompt and verdict (P05-T03), usage accounting (P05-T04) - then the review command, repair loop, integration, and exit gate (P05-T05).",
       "Serialize only durable review claims and state transitions; never hold the project lock across verification, secret scanning, a reviewer or worker model call, or a Git merge.",
       "Persist a reviewer lease and integration intent before their external side effects so crash recovery neither calls a reviewer twice nor merges accepted work twice.",
-      "Treat ignored untracked trees as untrusted input: enumerate incrementally with hard entry, file, depth, and byte caps, and bind every traversal step to canonical path plus device/inode identity before content enters secret scanning or reviewer context."
+      "Treat ignored untracked trees as untrusted input: enumerate incrementally with hard entry, file, depth, and byte caps, and bind every traversal step to canonical path plus device/inode identity before content enters secret scanning or reviewer context.",
+      "Freeze a reviewer block verdict over passing machine evidence as terminal unknown for the initial release; it expresses inability to decide, not an actionable review rejection.",
+      "Treat one exact npm tarball as the release artifact and test it through the package manager's installed binary on Ubuntu, macOS, and Windows, including Node.js 22.",
+      "Use package.json as the sole version authority; runtime output, tag, tarball metadata, and published version must agree.",
+      "Persist schema migrations only through an explicit locked upgrade that validates first, creates a recoverable backup, refreshes only recognized DraftForge-owned schemas, and preserves user-authored files.",
+      "Keep the package private until an owned npm scope is proven because the unscoped draftforge name belongs to an unrelated package.",
+      "Publish only a tag-matched, already-tested tarball through npm trusted publishing with provenance and least-privilege OIDC; do not store a long-lived npm token.",
+      "Decompose Phase 6 into the portable package foundation (P06-T01), three independent tracks for upgrades, documentation, and CI/provenance (P06-T02 through P06-T04), then the joined clean-machine gate (P06-T05)."
     ],
     "openQuestions": [
-      "Should a reviewer block verdict over passing machine evidence keep the terminal unknown classification, or should ADR 0010 add a dedicated taxonomy value?"
+      "Which npm scope does the user own and want to use for the public DraftForge CLI package? The unscoped draftforge name is unavailable."
     ],
     "blockers": [],
     "nextActions": [
-      "Open Phase 6 (Release): record any release-specific ADRs, define its task DAG, and make only the approved roots ready.",
-      "Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli. Phase 4 proved this with deterministic fake runners only, and no harness is installed in this shell.",
-      "Decide whether reviewer block over passing machine evidence needs a dedicated ADR 0010 classification before the release contract is frozen."
+      "Implement P06-T01 (ready): fix real npm-bin execution, build before packing, single-source the version, audit tarball contents, and smoke the installed CLI against a clean project.",
+      "After P06-T01 is accepted, dispatch P06-T02 (explicit upgrade), P06-T03 (documentation/example), and P06-T04 (CI/provenance) independently; P06-T04 cannot enable public publication until the user supplies an owned npm scope.",
+      "Join all three tracks in P06-T05 and require the same content-addressed tarball to pass clean Ubuntu, macOS, and Windows installed-binary gates before Phase 6 closes.",
+      "Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli when an authenticated local harness is available."
     ],
     "gotchas": [
       "`withProjectLock` now waits rather than refusing: one deadline is computed at entry (DEFAULT_LOCK_WAIT_TIMEOUT_MS 30s, DEFAULT_LOCK_POLL_INTERVAL_MS 25ms, both overridable per call) and every transient condition retries via the internal RetryableLockContention signal. Stale locks are still broken immediately. If you add a new refusal path in lock.ts, make it retryable unless it is genuinely unrecoverable - a hard throw there silently reintroduces the contention refusal.",
@@ -367,7 +433,12 @@
       "`draftforge review` reconciles persisted worker results before filtering review tasks, and a persisted verdict is reused rather than calling the reviewer again.",
       "A short-lived durable reviewer lease prevents concurrent review processes from duplicating a model call; stale ownership is recovered only after process liveness is disproven.",
       "Integration intent is written before merge. Recovery accepts an already-merged branch tip, but refuses when the project branch has advanced away from the recorded rollback point.",
-      "Ignored untracked directories are secret-scanned recursively but fail closed above depth 32, 1,024 entries, 1,024 files, 1 MiB per file, or 8 MiB aggregate. Incremental enumeration and ancestor/file identity checks prevent resource exhaustion and symlink-swap substitution."
+      "Ignored untracked directories are secret-scanned recursively but fail closed above depth 32, 1,024 entries, 1,024 files, 1 MiB per file, or 8 MiB aggregate. Incremental enumeration and ancestor/file identity checks prevent resource exhaustion and symlink-swap substitution.",
+      "The current packed CLI is inert through the npm-installed .bin symlink: the entry guard compares the symlink URL with the resolved module URL. P06-T01 must test the real installed binary, not direct dist execution.",
+      "The public unscoped draftforge package is an unrelated React package at version 0.4.0. Never publish or configure automation against that name; verify an owned scope first.",
+      "npm whoami returned unauthorized on this machine. Public scope ownership and trusted-publisher configuration are external prerequisites for P06-T04 publication, not reasons to delay portable-package or documentation work.",
+      "The current local runtime is newer than the supported floor. Platform simulation is not release evidence; Phase 6 needs real Node.js 22 jobs on Ubuntu, macOS, and Windows.",
+      "Ordinary state reads currently migrate v1/v2 in memory without persisting. Preserve read-only status/doctor behavior and make P06-T02 the only deliberate persistence path."
     ]
   }
 }
