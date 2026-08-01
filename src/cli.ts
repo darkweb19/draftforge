@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { ExecutionRefusedError, type ExecutionMode } from "./application/execution.js";
 import { WorkerCapabilityError } from "./application/worker.js";
 import { runDoctor } from "./commands/doctor.js";
@@ -561,3 +562,9 @@ function toErrorMessage(error: unknown): string {
 }
 
 class CliUsageError extends Error {}
+
+const entryUrl = process.argv[1] === undefined ? undefined : pathToFileURL(resolve(process.argv[1])).href;
+
+if (entryUrl === import.meta.url) {
+  process.exitCode = await main();
+}
