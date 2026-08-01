@@ -5,7 +5,7 @@
   "description": "Model-orchestrated CLI for turning rough ideas into agent-ready project scaffolds.",
   "type": "module",
   "bin": {
-    "draftforge": "./dist/cli.js"
+    "draftforge": "./dist/bin.js"
   },
   "files": [
     "dist",
@@ -21,6 +21,9 @@
     "check": "npm run typecheck && npm run lint && npm test && npm run session:check && npm run build",
     "dev": "tsx src/cli.ts",
     "lint": "oxlint src test scripts",
+    "pack": "npm run build && npm pack",
+    "package:smoke": "node scripts/package-smoke.mjs",
+    "prepack": "npm run build",
     "session:check": "node scripts/session-check.mjs",
     "session:render": "node scripts/session-render.mjs",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",

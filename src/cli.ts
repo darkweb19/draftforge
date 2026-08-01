@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { ExecutionRefusedError, type ExecutionMode } from "./application/execution.js";
 import { WorkerCapabilityError } from "./application/worker.js";
 import { runDoctor } from "./commands/doctor.js";
@@ -14,8 +13,7 @@ import { readProjectState, writeSession } from "./state/files.js";
 import { inspectProjectHealth } from "./state/health.js";
 import { readExecutionAttemptManifest } from "./state/execution.js";
 import { readUsageAggregate } from "./state/usage.js";
-
-const VERSION = "0.0.0";
+import { VERSION } from "./version.js";
 
 export interface CliIo {
   readonly out: (message: string) => void;
@@ -563,9 +561,3 @@ function toErrorMessage(error: unknown): string {
 }
 
 class CliUsageError extends Error {}
-
-const entryUrl = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
-
-if (entryUrl === import.meta.url) {
-  process.exitCode = await main();
-}
