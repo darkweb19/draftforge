@@ -1,4 +1,4 @@
-export { main, type CliIo } from "./cli.js";
+export { main, type CliDependencies, type CliIo } from "./cli.js";
 export { runDoctor, type DoctorCheck } from "./commands/doctor.js";
 export { runInit, type InitOptions, type InitResult } from "./commands/init.js";
 export {
@@ -10,6 +10,13 @@ export {
   type RunResult,
 } from "./commands/run.js";
 export { runReview, type ReviewOptions, type ReviewResult } from "./commands/review.js";
+export {
+  runUpgrade,
+  UpgradeRecoveryError,
+  UpgradeRefusedError,
+  type UpgradeOptions,
+  type UpgradeResult,
+} from "./commands/upgrade.js";
 export { reviewProject, type ReviewDependencies, type ReviewSummary } from "./commands/review.js";
 export type { ReviewWorkspacePort, ReviewWorkspaceSnapshot, IntegrationResult } from "./application/integration.js";
 export {
@@ -48,12 +55,14 @@ export {
 } from "./domain/state.js";
 export {
   readProjectState,
+  readRawProjectState,
   renderSession,
   serializeProjectState,
   writeFileAtomic,
   writeProjectState,
   writeSession,
 } from "./state/files.js";
+export { UPGRADE_BACKUPS_DIRECTORY } from "./state/upgrade.js";
 export { appendRunEvent, redactForLog, REDACTED_VALUE, type RunEvent } from "./state/events.js";
 export { inspectProjectHealth, type ProjectHealthCheck } from "./state/health.js";
 export {

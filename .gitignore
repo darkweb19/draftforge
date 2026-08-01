@@ -6,4 +6,5 @@ coverage/
 !.env.example
 .draftforge/config.local.json
 .draftforge/runs/
+.draftforge/backups/
 *.log
