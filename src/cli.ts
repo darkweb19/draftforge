@@ -10,7 +10,9 @@ import { runInit, type InitOptions } from "./commands/init.js";
 import { runPlan, type PlanOptions, type PlanResult } from "./commands/plan.js";
 import { runExecution, type RunOptions } from "./commands/run.js";
 import { runReview } from "./commands/review.js";
+import { runUpgrade, UpgradeRefusedError } from "./commands/upgrade.js";
 import { readProjectState, writeSession } from "./state/files.js";
+import { PROJECT_STATE_SCHEMA_VERSION } from "./domain/state.js";
 import { inspectProjectHealth } from "./state/health.js";
 import { readExecutionAttemptManifest } from "./state/execution.js";
 import { readUsageAggregate } from "./state/usage.js";
@@ -19,6 +21,11 @@ import { VERSION } from "./version.js";
 export interface CliIo {
   readonly out: (message: string) => void;
   readonly error: (message: string) => void;
+}
+
+/** Narrow test seam for deterministic command outcomes with filesystem failures. */
+export interface CliDependencies {
+  readonly runUpgrade?: typeof runUpgrade;
 }
 
 const consoleIo: CliIo = {
@@ -30,6 +37,7 @@ export async function main(
   args: readonly string[] = process.argv.slice(2),
   io: CliIo = consoleIo,
   cwd: string = process.cwd(),
+  dependencies: CliDependencies = {},
 ): Promise<number> {
   const [command] = args;
 
@@ -107,6 +115,32 @@ export async function main(
         return 0;
       } catch (error: unknown) {
         io.error(toErrorMessage(error));
+        return 1;
+      }
+    }
+
+    case "upgrade": {
+      try {
+        if (args.length !== 1) {
+          throw new CliUsageError("upgrade does not accept options.");
+        }
+        const result = await (dependencies.runUpgrade ?? runUpgrade)(resolve(cwd));
+        if (result.disposition === "current") {
+          io.out(`Project is already current at schema version ${result.fromVersion}; no files changed.`);
+          return 0;
+        }
+        io.out(
+          result.fromVersion === PROJECT_STATE_SCHEMA_VERSION
+            ? "Refreshed recognized DraftForge schema files."
+            : `Upgraded project state from schema version ${result.fromVersion} to ${PROJECT_STATE_SCHEMA_VERSION}.`,
+        );
+        io.out(`Backup: ${result.backupPath}`);
+        if (result.replaced.length > 0) io.out(`Replaced: ${result.replaced.join(", ")}`);
+        if (result.created.length > 0) io.out(`Created: ${result.created.join(", ")}`);
+        return 0;
+      } catch (error: unknown) {
+        io.error(toErrorMessage(error));
+        if (error instanceof UpgradeRefusedError || error instanceof CliUsageError) return 2;
         return 1;
       }
     }
@@ -546,14 +580,16 @@ Commands:
                       --by <actor>   Recorded dispatch identity
   review            Run machine-first review, bounded repairs, and integration
                       --by <actor>   Recorded reviewer identity
+  upgrade            Persist a safe, backed-up project schema upgrade
   handoff           Regenerate SESSION.md from canonical state
   help              Show this help
 
 Run and resume report dispatched, resumed, reconciled, deferred, review-ready,
 blocked, and no-work outcomes. Exit 0 means nothing failed, 1 means a task was
 blocked or an attempt needs manual inspection, and 2 means the command was
-refused before touching task state (bad options, an unapproved plan, or a
-text-only worker route).
+refused before touching task state (bad options, an unapproved plan, a
+text-only worker route, or an unsafe upgrade). A failed upgrade that created a
+backup exits 1 and prints its recovery path.
 `;
 }
 

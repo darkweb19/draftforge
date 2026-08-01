@@ -4,10 +4,10 @@
 
 ## What was done
 
-- Phase 6 (Release) is in progress and P06-T01 is complete. The package now uses a dedicated dist/bin.js npm entry while preserving direct source and dist/cli.js execution, derives --version from package.json, deletes ignored dist before every build, builds automatically before pack, and exposes package:pack plus package:smoke scripts. Package smoke computes an exact manifest from regular dist and template files, rejects unsafe, missing, duplicate, non-file, and extra tar entries, installs the exact tarball offline, and runs the real installed binary through --version, init, status, and handoff. Windows .cmd execution follows the repository's explicit escaped cmd.exe boundary with shell disabled. Independent QA rejected two iterations: first for stale dist shipping, unsafe Windows shell concatenation, and regressed direct CLI entrypoints; then because a previously contaminated explicit tarball still passed the broad dist allowlist. Both were repaired, and final QA accepted commit 805c743. Integrated verification is green on macOS: 469 tests, 464 pass, 0 fail, 5 expected live-smoke skips; typecheck, lint, session check, build, diff check, clean pack, exact manifest audit, offline install, and installed-binary smoke pass. The accepted tarball SHA-256 is 708e8938e6fcff5f623b530a67c8f668d9b3e71d7fd51032fbf4aefbedf48ad7. P06-T02 (upgrade safety), P06-T03 (documentation/example), and P06-T04 (CI/provenance) are now ready and path-disjoint enough to delegate independently. Public publication still requires an owned npm scope because unscoped draftforge belongs to an unrelated package.
+- Phase 6 (Release) is in progress and P06-T02 is complete. The new explicit draftforge upgrade command is the only path that persists supported v1/v2 state migrations to v3. It validates the complete candidate under the project lock, refuses future, malformed, in-flight, live, uncertain, orphaned, modified-schema, symlinked, non-regular, and post-plan drift conditions before unsafe overwrite, refreshes only recognized shipped schemas, and treats the canonical state version as the final commit marker so partial failures can be retried safely. Every replaced file is copied to a timestamped ignored backup before target mutation; an upgrade-manifest records replaced and newly created paths for recovery. Ordinary state reads and status remain non-persisting. Independent QA first rejected a symlink redirect that could overwrite an external recognized schema and a symlinked recovery artifact that was silently skipped; both were repaired with canonical-root and fail-closed path checks, then pinned by deterministic tests. Final QA accepted the repaired tree after 13 focused upgrade tests, a full 482-test gate (477 pass, 5 expected live-smoke skips), concurrent-trigger serialization, offline installed-tarball v1/v2/current/future/modified/in-flight CLI checks, and read-only status/handoff verification. P06-T03 (documentation/example) and the non-publication portions of P06-T04 (CI/provenance) remain ready. Public publication still requires an owned npm scope because unscoped draftforge belongs to an unrelated package.
 - Current position: phase-06 — Release; stage implementation; status in_progress.
-- Current task: None. Next task: P06-T02.
-- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01, P03-T02, P03-T03, P03-T04, P04-T01, P04-T02, P04-T03, P04-T04, P05-T01, P05-T02, P05-T03, P05-T04, P05-T05, P06-T01.
+- Current task: None. Next task: P06-T03.
+- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01, P03-T02, P03-T03, P03-T04, P04-T01, P04-T02, P04-T03, P04-T04, P05-T01, P05-T02, P05-T03, P05-T04, P05-T05, P06-T01, P06-T02.
 
 ## Decisions locked
 
@@ -59,6 +59,8 @@
 - Keep the package private until an owned npm scope is proven because the unscoped draftforge name belongs to an unrelated package.
 - Publish only a tag-matched, already-tested tarball through npm trusted publishing with provenance and least-privilege OIDC; do not store a long-lived npm token.
 - Decompose Phase 6 into the portable package foundation (P06-T01), three independent tracks for upgrades, documentation, and CI/provenance (P06-T02 through P06-T04), then the joined clean-machine gate (P06-T05).
+- During explicit upgrades, write recognized schemas first, SESSION.md second, and canonical state last so schemaVersion is the durable commit marker and a retry re-plans any incomplete upgrade.
+- Treat managed upgrade paths and recovery artifacts as untrusted filesystem input: canonicalize the project root, refuse internal symlinks or non-regular entries, and bind every target write to the bytes or absence observed during planning.
 
 ## Open questions
 
@@ -66,11 +68,10 @@
 
 ## Next steps
 
-1. Dispatch P06-T02 (ready): implement the explicit locked upgrade, recoverable backups, recognized-schema refresh, and compatibility fixtures without making status or doctor mutate state.
-2. Dispatch P06-T03 (ready) independently for installation, provider, example, troubleshooting, upgrade, and security documentation grounded in the installed tarball.
-3. Dispatch the non-publication portions of P06-T04 (ready) for real Ubuntu/macOS/Windows Node 22 checks and provenance workflow contracts; public publication cannot be enabled until the user supplies an owned npm scope.
-4. Join all three tracks in P06-T05 and require the same content-addressed tarball to pass clean Ubuntu, macOS, and Windows installed-binary gates before Phase 6 closes.
-5. Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli when an authenticated local harness is available.
+1. Dispatch P06-T03 (ready) independently for installation, provider, example, troubleshooting, upgrade, and security documentation grounded in the installed tarball.
+2. Dispatch the non-publication portions of P06-T04 (ready) for real Ubuntu/macOS/Windows Node 22 checks and provenance workflow contracts; public publication cannot be enabled until the user supplies an owned npm scope.
+3. Join all three tracks in P06-T05 and require the same content-addressed tarball to pass clean Ubuntu, macOS, and Windows installed-binary gates before Phase 6 closes.
+4. Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli when an authenticated local harness is available.
 
 ## Gotchas
 
@@ -117,5 +118,8 @@
 - Ordinary state reads currently migrate v1/v2 in memory without persisting. Preserve read-only status/doctor behavior and make P06-T02 the only deliberate persistence path.
 - Package smoke intentionally compares an explicit tarball against the current clean dist/templates file set. CI must build before smoke and must not substitute or rebuild the supplied artifact between audit and installation.
 - P06-T01 tests the POSIX installed binary locally and unit-tests the escaped Windows .cmd invocation. Real Windows installed-binary evidence remains mandatory in P06-T04/P06-T05 before release.
+- Explicit upgrade writes schemas, then SESSION.md, then canonical state. Do not move the state write earlier: its schemaVersion is the commit marker that makes partial failures retryable instead of falsely current.
+- Upgrade backups live under ignored .draftforge/backups. On a failed-with-backup result, restore every path listed as replaced and remove every path listed as created in upgrade-manifest.json before retrying.
+- Never relax upgrade path checks to lexical containment alone. Managed schema and recovery trees must fail closed on internal symlinks, non-regular entries, and target bytes that changed after planning.
 
-Last updated: 2026-08-01T14:56:18.000Z by codex
+Last updated: 2026-08-01T17:38:43.000Z by codex

@@ -11,10 +11,18 @@ export const STATE_PATH = ".draftforge/state.json";
 export const SESSION_PATH = "SESSION.md";
 
 export async function readProjectState(root: string): Promise<ProjectState> {
-  const raw = await readFile(resolve(root, STATE_PATH), "utf8");
-  const value = migrateProjectState(JSON.parse(raw) as unknown);
+  const value = migrateProjectState(await readRawProjectState(root));
   assertProjectState(value);
   return value;
+}
+
+/**
+ * Reads the canonical document without applying a compatibility migration.
+ * Explicit upgrade needs this raw version to distinguish a current project
+ * from one that ordinary reads can only adapt in memory.
+ */
+export async function readRawProjectState(root: string): Promise<unknown> {
+  return JSON.parse(await readFile(resolve(root, STATE_PATH), "utf8")) as unknown;
 }
 
 /**
