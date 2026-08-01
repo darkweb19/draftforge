@@ -4,10 +4,10 @@
 
 ## What was done
 
-- Phase 6 (Release) is open and planned; no Phase 6 implementation has started. Two independent release audits inspected the repository and an actual locally packed tarball. The package builds and installs, but its npm-linked executable exits 0 without running because src/cli.ts compares the .bin symlink URL with the resolved module URL; direct node dist/cli.js tests hid the defect. The package is also private, version 0.0.0 is duplicated in source, packing can rely on stale ignored dist output, no GitHub Actions exist, migration is only in-memory, and release/operator documentation is incomplete. ADR 0011 therefore makes the exact npm tarball the tested artifact, keeps ordinary reads non-persisting, requires an explicit locked and recoverable upgrade, and uses a real Windows/macOS/Linux Node 22 matrix plus tag-gated npm trusted publishing with provenance. P06-T01 is ready and fixes the installed artifact first. P06-T02 (upgrade safety), P06-T03 (docs and example), and P06-T04 (CI and provenance) follow independently, then P06-T05 joins them at the clean-machine release gate. The unscoped draftforge npm name is occupied by an unrelated package and npm is not authenticated on this machine, so public scope selection is deferred without blocking P06-T01 through P06-T03. ADR 0010 now freezes reviewer block over passing evidence as terminal unknown for the initial release.
+- Phase 6 (Release) is in progress and P06-T01 is complete. The package now uses a dedicated dist/bin.js npm entry while preserving direct source and dist/cli.js execution, derives --version from package.json, deletes ignored dist before every build, builds automatically before pack, and exposes package:pack plus package:smoke scripts. Package smoke computes an exact manifest from regular dist and template files, rejects unsafe, missing, duplicate, non-file, and extra tar entries, installs the exact tarball offline, and runs the real installed binary through --version, init, status, and handoff. Windows .cmd execution follows the repository's explicit escaped cmd.exe boundary with shell disabled. Independent QA rejected two iterations: first for stale dist shipping, unsafe Windows shell concatenation, and regressed direct CLI entrypoints; then because a previously contaminated explicit tarball still passed the broad dist allowlist. Both were repaired, and final QA accepted commit 805c743. Integrated verification is green on macOS: 469 tests, 464 pass, 0 fail, 5 expected live-smoke skips; typecheck, lint, session check, build, diff check, clean pack, exact manifest audit, offline install, and installed-binary smoke pass. The accepted tarball SHA-256 is 708e8938e6fcff5f623b530a67c8f668d9b3e71d7fd51032fbf4aefbedf48ad7. P06-T02 (upgrade safety), P06-T03 (documentation/example), and P06-T04 (CI/provenance) are now ready and path-disjoint enough to delegate independently. Public publication still requires an owned npm scope because unscoped draftforge belongs to an unrelated package.
 - Current position: phase-06 — Release; stage implementation; status in_progress.
-- Current task: None. Next task: P06-T01.
-- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01, P03-T02, P03-T03, P03-T04, P04-T01, P04-T02, P04-T03, P04-T04, P05-T01, P05-T02, P05-T03, P05-T04, P05-T05.
+- Current task: None. Next task: P06-T02.
+- Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01, P03-T02, P03-T03, P03-T04, P04-T01, P04-T02, P04-T03, P04-T04, P05-T01, P05-T02, P05-T03, P05-T04, P05-T05, P06-T01.
 
 ## Decisions locked
 
@@ -66,10 +66,11 @@
 
 ## Next steps
 
-1. Implement P06-T01 (ready): fix real npm-bin execution, build before packing, single-source the version, audit tarball contents, and smoke the installed CLI against a clean project.
-2. After P06-T01 is accepted, dispatch P06-T02 (explicit upgrade), P06-T03 (documentation/example), and P06-T04 (CI/provenance) independently; P06-T04 cannot enable public publication until the user supplies an owned npm scope.
-3. Join all three tracks in P06-T05 and require the same content-addressed tarball to pass clean Ubuntu, macOS, and Windows installed-binary gates before Phase 6 closes.
-4. Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli when an authenticated local harness is available.
+1. Dispatch P06-T02 (ready): implement the explicit locked upgrade, recoverable backups, recognized-schema refresh, and compatibility fixtures without making status or doctor mutate state.
+2. Dispatch P06-T03 (ready) independently for installation, provider, example, troubleshooting, upgrade, and security documentation grounded in the installed tarball.
+3. Dispatch the non-publication portions of P06-T04 (ready) for real Ubuntu/macOS/Windows Node 22 checks and provenance workflow contracts; public publication cannot be enabled until the user supplies an owned npm scope.
+4. Join all three tracks in P06-T05 and require the same content-addressed tarball to pass clean Ubuntu, macOS, and Windows installed-binary gates before Phase 6 closes.
+5. Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli when an authenticated local harness is available.
 
 ## Gotchas
 
@@ -114,5 +115,7 @@
 - npm whoami returned unauthorized on this machine. Public scope ownership and trusted-publisher configuration are external prerequisites for P06-T04 publication, not reasons to delay portable-package or documentation work.
 - The current local runtime is newer than the supported floor. Platform simulation is not release evidence; Phase 6 needs real Node.js 22 jobs on Ubuntu, macOS, and Windows.
 - Ordinary state reads currently migrate v1/v2 in memory without persisting. Preserve read-only status/doctor behavior and make P06-T02 the only deliberate persistence path.
+- Package smoke intentionally compares an explicit tarball against the current clean dist/templates file set. CI must build before smoke and must not substitute or rebuild the supplied artifact between audit and installation.
+- P06-T01 tests the POSIX installed binary locally and unit-tests the escaped Windows .cmd invocation. Real Windows installed-binary evidence remains mandatory in P06-T04/P06-T05 before release.
 
-Last updated: 2026-08-01T14:12:52.000Z by codex
+Last updated: 2026-08-01T14:56:18.000Z by codex
