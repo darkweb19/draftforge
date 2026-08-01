@@ -1,33 +1,67 @@
 import assert from "node:assert/strict";
 import { gunzipSync } from "node:zlib";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-export function auditTarball(buffer, tarballPath) {
+export async function expectedTarballEntries(root = repositoryRoot) {
+  const entries = ["package/package.json", "package/README.md", "package/LICENSE"];
+  for (const directory of ["dist", "templates"]) {
+    for (const file of await collectRegularFiles(root, directory)) {
+      entries.push(`package/${file}`);
+    }
+  }
+  return entries.sort();
+}
+
+async function collectRegularFiles(root, directory) {
+  const absoluteDirectory = resolve(root, directory);
+  const files = [];
+  for (const entry of await readdir(absoluteDirectory, { withFileTypes: true })) {
+    const absolutePath = join(absoluteDirectory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await collectRegularFiles(root, relative(root, absolutePath)));
+      continue;
+    }
+    const status = await lstat(absolutePath);
+    if (!status.isFile() || status.isSymbolicLink()) {
+      throw new Error(`Expected package source is not a regular file: ${relative(root, absolutePath)}`);
+    }
+    const file = relative(root, absolutePath).replaceAll("\\", "/");
+    if (!isSafeRelativePath(file)) throw new Error(`Unsafe package source path: ${file}`);
+    files.push(file);
+  }
+  return files;
+}
+
+export function auditTarball(buffer, tarballPath, expectedEntries) {
   const entries = readTarEntries(gunzipSync(buffer));
-  const required = new Set(["package/package.json", "package/dist/bin.js", "package/README.md", "package/LICENSE"]);
+  const expected = new Set(expectedEntries);
+  const actual = new Set();
   for (const entry of entries) {
-    if (!isAllowed(entry)) {
+    if (!isSafePackagePath(entry)) {
       throw new Error(`Unexpected file in ${basename(tarballPath)}: ${entry}`);
     }
-    required.delete(entry);
+    if (actual.has(entry) || !expected.has(entry)) {
+      throw new Error(`Unexpected file in ${basename(tarballPath)}: ${entry}`);
+    }
+    actual.add(entry);
   }
-  if (required.size > 0) {
-    throw new Error(`Missing required package files: ${[...required].join(", ")}`);
+  for (const entry of expected) {
+    if (!actual.has(entry)) throw new Error(`Missing required package file: ${entry}`);
   }
 }
 
-function isAllowed(entry) {
-  return entry === "package/package.json" ||
-    entry === "package/README.md" ||
-    entry === "package/LICENSE" ||
-    entry.startsWith("package/dist/") ||
-    entry.startsWith("package/templates/");
+function isSafePackagePath(entry) {
+  return entry.startsWith("package/") && isSafeRelativePath(entry.slice("package/".length));
+}
+
+function isSafeRelativePath(path) {
+  return path.length > 0 && !path.includes("\\") && path.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
 }
 
 function readTarEntries(buffer) {
@@ -39,7 +73,12 @@ function readTarEntries(buffer) {
     const prefix = readTarString(header, 345, 155);
     const size = Number.parseInt(readTarString(header, 124, 12).trim() || "0", 8);
     if (!Number.isSafeInteger(size) || size < 0) throw new Error("Invalid tarball entry size.");
-    if (name.length > 0 && header[156] !== 53) entries.push(prefix.length > 0 ? `${prefix}/${name}` : name);
+    const path = prefix.length > 0 ? `${prefix}/${name}` : name;
+    const type = header[156];
+    if (name.length > 0 && type !== 53) {
+      if (type !== 0 && type !== 48) throw new Error(`Unexpected tarball entry type: ${path}`);
+      entries.push(path);
+    }
     offset += 512 + Math.ceil(size / 512) * 512;
   }
   return entries;
@@ -116,7 +155,7 @@ async function main() {
   const tarball = resolve(tarballArgument);
   const packageMetadata = JSON.parse(await readFile(join(repositoryRoot, "package.json"), "utf8"));
   assert.equal(typeof packageMetadata.version, "string", "package.json must have a version");
-  auditTarball(await readFile(tarball), tarball);
+  auditTarball(await readFile(tarball), tarball, await expectedTarballEntries());
 
   const smokeRoot = await mkdtemp(join(tmpdir(), "draftforge-package-smoke-"));
   try {

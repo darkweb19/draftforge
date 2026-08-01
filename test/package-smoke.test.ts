@@ -7,7 +7,7 @@ import { main, type CliIo } from "../src/cli.js";
 // The package-smoke executable stays plain JavaScript so npm can invoke it
 // without a TypeScript loader; its exported helper is covered here directly.
 // @ts-expect-error JavaScript executable intentionally has no declaration file.
-import { prepareSmokeInvocation } from "../scripts/package-smoke.mjs";
+import { expectedTarballEntries, prepareSmokeInvocation } from "../scripts/package-smoke.mjs";
 
 test("reports the package metadata version", async () => {
   const output: string[] = [];
@@ -39,6 +39,8 @@ test("executes the source CLI directly without running it when imported", async 
   const build = await run(process.execPath, [npmExecPath, "run", "build"]);
   assert.equal(build.exitCode, 0);
   await assert.rejects(access(stalePath));
+  assert.equal((await expectedTarballEntries()).includes("package/dist/stale-should-not-pack.js"), false);
+  assert.equal((await expectedTarballEntries()).includes("package/dist/bin.js"), true);
 
   const result = await run(process.execPath, ["--import", "tsx", "src/cli.ts", "--version"]);
   assert.equal(result.exitCode, 0);
