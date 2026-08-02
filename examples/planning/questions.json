@@ -1,0 +1,26 @@
+{
+  "kind": "questions",
+  "questions": {
+    "revision": 1,
+    "items": [
+      {
+        "id": "Q1",
+        "prompt": "Where should the on-disk index live, and may notewell own that path exclusively?",
+        "blocking": true,
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "prompt": "Should ranking be term-frequency scoring over the whole note, or should headings and titles be weighted above body text?",
+        "blocking": true,
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "prompt": "Should `search` emit machine-readable JSON in addition to the human table?",
+        "blocking": false,
+        "answer": null
+      }
+    ]
+  }
+}

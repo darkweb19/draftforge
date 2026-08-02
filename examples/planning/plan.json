@@ -1,0 +1,152 @@
+{
+  "kind": "plan",
+  "plan": {
+    "revision": 1,
+    "assumptions": [
+      "A single local user runs notewell from a terminal against notes they own.",
+      "Notes are UTF-8 Markdown; binary and non-.md files are skipped silently.",
+      "The first release ships lexical ranking only, as the draft requires."
+    ],
+    "decisions": [
+      {
+        "id": "ADR-001",
+        "title": "Single-file inverted index in the user cache directory",
+        "adrFile": "docs/decisions/0001-single-file-inverted-index.md",
+        "context": "The draft forbids a database server and requires a rebuildable index that is safe to delete.",
+        "decision": "Persist one JSON inverted index under the platform user cache directory, written atomically through a temporary file and rename.",
+        "consequences": [
+          "Deleting the index file is always safe; the next index run rebuilds it.",
+          "The whole index is loaded into memory, which bounds the supported corpus size."
+        ]
+      },
+      {
+        "id": "ADR-002",
+        "title": "Field-weighted term-frequency ranking",
+        "adrFile": "docs/decisions/0002-field-weighted-ranking.md",
+        "context": "Body-only term frequency ranks long notes above short, precisely titled ones.",
+        "decision": "Score each note by term frequency with titles and headings weighted above body text, and break ties by newest modification time.",
+        "consequences": [
+          "Ranking needs the parser to keep heading structure, not just a token stream.",
+          "No embeddings or external ranking service are required."
+        ]
+      }
+    ],
+    "phases": [
+      {
+        "id": "phase-01",
+        "name": "Index core",
+        "objective": "Parse Markdown notes and persist a rebuildable on-disk index incrementally.",
+        "exitCriteria": [
+          "Indexing a directory twice re-reads only changed files.",
+          "Deleting the index file and re-indexing reproduces the same index contents.",
+          "npm test passes."
+        ]
+      },
+      {
+        "id": "phase-02",
+        "name": "Query and CLI",
+        "objective": "Answer ranked and tag-filtered queries from the persisted index through a CLI.",
+        "exitCriteria": [
+          "search returns ranked results with path, title, and one matching line.",
+          "search --tag filters to front-matter tags.",
+          "npm test passes."
+        ]
+      }
+    ],
+    "tasks": [
+      {
+        "id": "P01-T01",
+        "title": "Create the strict TypeScript scaffold and parse Markdown notes",
+        "phaseId": "phase-01",
+        "objective": "Create the npm and strict-TypeScript project scaffold, then read a .md file and produce a document with its title, headings, body tokens, front-matter tags, and modification time.",
+        "dependsOn": [],
+        "ownedPaths": [
+          ".gitignore",
+          "package.json",
+          "package-lock.json",
+          "tsconfig.json",
+          "src/parse/",
+          "test/parse/"
+        ],
+        "requiredContext": ["docs/decisions/0002-field-weighted-ranking.md"],
+        "relevantAdrs": ["docs/decisions/0002-field-weighted-ranking.md"],
+        "acceptanceCriteria": [
+          "The task creates package.json with test, typecheck, and build scripts plus the future notewell executable entry, and creates package-lock.json from the installed development dependencies.",
+          "The task creates tsconfig.json with strict TypeScript enabled and .gitignore excluding node_modules, build output, DraftForge run artifacts, upgrade backups, and config.local.json.",
+          "YAML front matter delimited by --- yields a tag list.",
+          "A note without front matter parses with an empty tag list.",
+          "Headings are retained separately from body text, with parser behavior covered under test/parse/."
+        ],
+        "verification": ["npm test", "npm run typecheck"],
+        "exclusions": ["No filesystem walking and no index persistence."]
+      },
+      {
+        "id": "P01-T02",
+        "title": "Build and persist the inverted index incrementally",
+        "phaseId": "phase-01",
+        "objective": "Walk a notes directory, index parsed documents, and persist the index atomically, re-reading only files whose size or mtime changed.",
+        "dependsOn": ["P01-T01"],
+        "ownedPaths": ["src/index/", "test/index/"],
+        "requiredContext": ["docs/decisions/0001-single-file-inverted-index.md"],
+        "relevantAdrs": ["docs/decisions/0001-single-file-inverted-index.md"],
+        "acceptanceCriteria": [
+          "A second index run over an unchanged directory reads no note files.",
+          "A deleted index file is rebuilt on the next run.",
+          "An interrupted write never leaves a partial index in place.",
+          "Incremental indexing and atomic persistence are covered under test/index/."
+        ],
+        "verification": ["npm test", "npm run typecheck"],
+        "exclusions": ["No query evaluation and no CLI wiring."]
+      },
+      {
+        "id": "P02-T01",
+        "title": "Rank query matches against the persisted index",
+        "phaseId": "phase-02",
+        "objective": "Evaluate a term query over the index and return notes ordered by field-weighted score, newest first on ties.",
+        "dependsOn": ["P01-T02"],
+        "ownedPaths": ["src/query/", "test/query/"],
+        "requiredContext": ["docs/decisions/0002-field-weighted-ranking.md"],
+        "relevantAdrs": ["docs/decisions/0002-field-weighted-ranking.md"],
+        "acceptanceCriteria": [
+          "A title match outranks an equal-frequency body match.",
+          "Equal scores order by newest modification time.",
+          "Tag filtering restricts results to notes carrying the tag.",
+          "Ranking and filtering behavior are covered under test/query/."
+        ],
+        "verification": ["npm test", "npm run typecheck"],
+        "exclusions": ["No output formatting and no argument parsing."]
+      },
+      {
+        "id": "P02-T02",
+        "title": "Expose the index and search commands",
+        "phaseId": "phase-02",
+        "objective": "Wire the index and query layers behind notewell index and notewell search, including --tag.",
+        "dependsOn": ["P02-T01"],
+        "ownedPaths": ["src/cli/", "test/cli/"],
+        "requiredContext": ["docs/decisions/0001-single-file-inverted-index.md"],
+        "relevantAdrs": ["docs/decisions/0001-single-file-inverted-index.md"],
+        "acceptanceCriteria": [
+          "search prints path, title, and one matching line per result.",
+          "search --tag passes the filter through to the query layer.",
+          "A query with no matches exits 0 and prints no results.",
+          "CLI argument and output behavior are covered under test/cli/."
+        ],
+        "verification": ["npm test", "npm run typecheck"],
+        "exclusions": ["No changes to parsing, indexing, or ranking behavior."]
+      }
+    ],
+    "risks": [
+      {
+        "id": "R1",
+        "description": "An interrupted index write could corrupt the single index file.",
+        "mitigation": "Write to a temporary file in the same directory and rename atomically."
+      },
+      {
+        "id": "R2",
+        "description": "Size and mtime comparison misses same-size edits within one timestamp granularity.",
+        "mitigation": "Record a content hash alongside size and mtime and compare it when the timestamp is ambiguous."
+      }
+    ],
+    "verification": ["npm test", "npm run typecheck"]
+  }
+}
