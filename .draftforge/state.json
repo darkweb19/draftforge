@@ -334,9 +334,9 @@
     "docs/decisions/0011-release-artifact-upgrades-and-provenance.md"
   ],
   "handoff": {
-    "updatedAt": "2026-08-01T17:38:43.000Z",
+    "updatedAt": "2026-08-04T14:24:38.983Z",
     "updatedBy": "codex",
-    "summary": "Phase 6 (Release) is in progress and P06-T02 is complete. The new explicit draftforge upgrade command is the only path that persists supported v1/v2 state migrations to v3. It validates the complete candidate under the project lock, refuses future, malformed, in-flight, live, uncertain, orphaned, modified-schema, symlinked, non-regular, and post-plan drift conditions before unsafe overwrite, refreshes only recognized shipped schemas, and treats the canonical state version as the final commit marker so partial failures can be retried safely. Every replaced file is copied to a timestamped ignored backup before target mutation; an upgrade-manifest records replaced and newly created paths for recovery. Ordinary state reads and status remain non-persisting. Independent QA first rejected a symlink redirect that could overwrite an external recognized schema and a symlinked recovery artifact that was silently skipped; both were repaired with canonical-root and fail-closed path checks, then pinned by deterministic tests. Final QA accepted the repaired tree after 13 focused upgrade tests, a full 482-test gate (477 pass, 5 expected live-smoke skips), concurrent-trigger serialization, offline installed-tarball v1/v2/current/future/modified/in-flight CLI checks, and read-only status/handoff verification. P06-T03 (documentation/example) and the non-publication portions of P06-T04 (CI/provenance) remain ready. Public publication still requires an owned npm scope because unscoped draftforge belongs to an unrelated package.",
+    "summary": "Phase 6 (Release) remains in progress. README now leads with the verified local-tarball installation path and shortest installed-CLI workflow, documents every implemented command, separates source development from installed usage, and brings provider capabilities, execution/review recovery, explicit upgrades, security boundaries, and release limitations in line with canonical state. It explicitly warns that this package is still private, the unscoped npm name belongs to an unrelated project, and the final Ubuntu/macOS/Windows tarball gate has not passed. This is README-only progress within P06-T03; the remaining installation, provider, upgrade, troubleshooting, example, security, changelog, and documentation-test artifacts are still required before that task can move from ready to done.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
@@ -394,7 +394,7 @@
     ],
     "blockers": [],
     "nextActions": [
-      "Dispatch P06-T03 (ready) independently for installation, provider, example, troubleshooting, upgrade, and security documentation grounded in the installed tarball.",
+      "Finish P06-T03 (ready) by adding the remaining installation, provider, upgrade, troubleshooting, example, security, changelog, and documentation-test artifacts grounded in the installed tarball.",
       "Dispatch the non-publication portions of P06-T04 (ready) for real Ubuntu/macOS/Windows Node 22 checks and provenance workflow contracts; public publication cannot be enabled until the user supplies an owned npm scope.",
       "Join all three tracks in P06-T05 and require the same content-addressed tarball to pass clean Ubuntu, macOS, and Windows installed-binary gates before Phase 6 closes.",
       "Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli when an authenticated local harness is available."
