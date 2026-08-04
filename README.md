@@ -1,26 +1,67 @@
 # DraftForge
 
-DraftForge is a local-first CLI that turns a rough Markdown idea into an architecture interview, recorded decisions, a phased implementation plan, and an agent-ready project scaffold.
+DraftForge is a local-first CLI that turns a rough Markdown idea into recorded
+architecture decisions, an approved task graph, isolated worker execution, and
+machine-first review.
 
-The lead model decides and delegates. It does not implement. Lower-cost workers receive bounded task contracts, and a reviewer validates their work before the project advances.
+> **Release status:** this repository is an unpublished Phase 6 release
+> candidate. Phases 0 through 5 and the package/upgrade foundations (P06-T01 and
+> P06-T02) are complete. Documentation, cross-platform release evidence, and
+> publication are still in progress.
 
-## Status
+## Install the current release candidate
 
-Phase 1 is complete. Phase 2 has provider-independent planning contracts,
-resumable interview state, DAG validation, an explicit approval gate, a
-recorded architect loop you can drive by hand, and recorded plan revision.
-Phase 3 is complete: a role-routed model-runner factory and shared adapter
-reliability (timeout, bounded retry, secret redaction) sit behind the
-model-runner port. Codex CLI and Claude Code are available through local
-subscription-backed authentication, and the OpenAI and Anthropic API transports
-are available through environment-supplied keys.
-Phase 4 is implemented: `run` and `resume` schedule bounded task contracts into
-isolated Git worktrees with durable, resumable execution attempts. The phase
-exit gates remain authoritative in `SESSION.md`.
+Requirements: Node.js 22 or newer and Git. Windows, macOS, and Linux are the
+release targets; the final three-platform installed-tarball gate has not passed
+yet.
 
-## Core commands
+The package is still private while an owned npm scope is selected. The unscoped
+`draftforge` package on npm belongs to an unrelated project, so do not install
+it. Build and verify this repository's tarball instead:
+
+```bash
+npm install
+npm run package:pack
+npm run package:smoke -- ./draftforge-0.0.0.tgz
+npm install --global ./draftforge-0.0.0.tgz
+draftforge --version
+```
+
+The tarball name follows the version in `package.json`. `package:smoke` installs
+that exact artifact in a clean temporary project and exercises the npm-generated
+binary without a provider or network call.
+
+## Shortest working flow
+
+These are installed-CLI commands. The generated configuration defaults to
+Codex CLI for the architect and reviewer and Claude Code for the workspace
+worker.
+
+```bash
+draftforge init my-app
+cd my-app
+# Describe the project in idea.md.
+draftforge doctor
+draftforge plan idea.md
+draftforge plan --run
+draftforge plan --answer <id>=<text>
+draftforge plan --run
+draftforge plan --approve --by <actor>
+draftforge run --by <actor>
+draftforge review --by <actor>
+```
+
+The first architect turn returns one batch of questions. Record every blocking
+answer, then run the architect again for the plan. Approval materializes the
+ADRs, phases, and bounded task contracts. `run` sends ready work to isolated Git
+worktrees; `review` runs verification, scope and secret checks, independent
+review, bounded repair, and integration. Use `draftforge resume` only for an
+interrupted attempt; it does not claim new work.
+
+## Command reference
 
 ```text
+draftforge --version
 draftforge init [directory] [--name <name>] [--force]
 draftforge doctor
 draftforge status
@@ -34,23 +75,22 @@ draftforge plan --approve --by <actor>
 draftforge plan --revise --reason <text> --by <actor> [--reopen <id>] [--retire <id>]
 draftforge run [--by <actor>]
 draftforge resume [--by <actor>]
+draftforge review [--by <actor>]
+draftforge upgrade
 draftforge handoff
 ```
 
-`init`, `doctor`, `status`, `handoff`, the provider-neutral planning checkpoint,
-and delegated execution are all wired.
-
 `plan <idea.md>` initializes or resumes `.draftforge/planning.json` without
-calling a provider. The planning loop can be driven manually without any
-adapter:
+calling a provider. `plan --run` invokes the configured architect. To use an
+external model or inspect every checkpoint, drive the provider-neutral loop
+manually:
 
 ```text
-draftforge plan idea.md                     # start or resume a revision
-draftforge plan --prompt                    # print the architect prompt
-draftforge plan --submit questions.json     # apply the one-batch interview
-draftforge plan --answer Q1="Node.js 22"    # record answers, repeatable
 draftforge plan --prompt
-draftforge plan --submit plan.json          # apply the structured plan
+draftforge plan --submit questions.json
+draftforge plan --answer <id>=<text>
+draftforge plan --prompt
+draftforge plan --submit plan.json
 draftforge plan --approve --by <actor>
 ```
 
