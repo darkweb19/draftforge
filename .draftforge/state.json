@@ -334,9 +334,9 @@
     "docs/decisions/0011-release-artifact-upgrades-and-provenance.md"
   ],
   "handoff": {
-    "updatedAt": "2026-08-04T14:24:38.983Z",
+    "updatedAt": "2026-08-10T18:42:56.812Z",
     "updatedBy": "codex",
-    "summary": "Phase 6 (Release) remains in progress. README now leads with the verified local-tarball installation path and shortest installed-CLI workflow, documents every implemented command, separates source development from installed usage, and brings provider capabilities, execution/review recovery, explicit upgrades, security boundaries, and release limitations in line with canonical state. It explicitly warns that this package is still private, the unscoped npm name belongs to an unrelated project, and the final Ubuntu/macOS/Windows tarball gate has not passed. This is README-only progress within P06-T03; the remaining installation, provider, upgrade, troubleshooting, example, security, changelog, and documentation-test artifacts are still required before that task can move from ready to done.",
+    "summary": "Phase 6 (Release) remains in progress. P06-T03 implementation is complete across README, installation, provider, upgrade, troubleshooting, example, security, changelog, and documentation-test artifacts. Independent review found no remaining material documentation issue, and the exact local tarball passed package smoke plus the complete deterministic no-provider example through npm's real Windows command shim. P06-T03 remains ready rather than done because the required repository-wide npm run check is red on this Windows/Node 24 machine in four pre-existing tests outside the task's owned paths: one Git line-ending assertion, two symlink tests that cannot create links without Windows Developer Mode, and one concurrent atomic usage-ledger rename. The requested npm-scope setup checklist is in to-do-sujan.md.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
@@ -392,9 +392,11 @@
     "openQuestions": [
       "Which npm scope does the user own and want to use for the public DraftForge CLI package? The unscoped draftforge name is unavailable."
     ],
-    "blockers": [],
+    "blockers": [
+      "P06-T03 cannot move to done until npm run check passes. On Windows with Node 24, test/integration.test.ts has a core.autocrlf-sensitive newline assertion, two test/upgrade-command.test.ts cases fail to create symlinks with EPERM because Developer Mode is unavailable, and test/usage.test.ts hits EPERM while concurrent writers replace usage.json. These paths are outside the P06-T03 task contract and require an explicit portability repair or a green supported environment."
+    ],
     "nextActions": [
-      "Finish P06-T03 (ready) by adding the remaining installation, provider, upgrade, troubleshooting, example, security, changelog, and documentation-test artifacts grounded in the installed tarball.",
+      "Resolve or explicitly authorize a bounded Windows portability repair for the four repository-wide npm run check failures, rerun the full gate, then move P06-T03 from ready to done.",
       "Dispatch the non-publication portions of P06-T04 (ready) for real Ubuntu/macOS/Windows Node 22 checks and provenance workflow contracts; public publication cannot be enabled until the user supplies an owned npm scope.",
       "Join all three tracks in P06-T05 and require the same content-addressed tarball to pass clean Ubuntu, macOS, and Windows installed-binary gates before Phase 6 closes.",
       "Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli when an authenticated local harness is available."
@@ -445,7 +447,9 @@
       "P06-T01 tests the POSIX installed binary locally and unit-tests the escaped Windows .cmd invocation. Real Windows installed-binary evidence remains mandatory in P06-T04/P06-T05 before release.",
       "Explicit upgrade writes schemas, then SESSION.md, then canonical state. Do not move the state write earlier: its schemaVersion is the commit marker that makes partial failures retryable instead of falsely current.",
       "Upgrade backups live under ignored .draftforge/backups. On a failed-with-backup result, restore every path listed as replaced and remove every path listed as created in upgrade-manifest.json before retrying.",
-      "Never relax upgrade path checks to lexical containment alone. Managed schema and recovery trees must fail closed on internal symlinks, non-regular entries, and target bytes that changed after planning."
+      "Never relax upgrade path checks to lexical containment alone. Managed schema and recovery trees must fail closed on internal symlinks, non-regular entries, and target bytes that changed after planning.",
+      "P06-T03 focused evidence is green: six documentation tests, typecheck, lint (five pre-existing warnings), build, package pack/smoke, and the deterministic planning example through the npm-installed Windows .cmd shim. The generated tarball was removed after verification.",
+      "The 2026-08-10 full npm run check was not green on this Windows/Node 24 machine. With core.autocrlf forced false the integration newline test passes, but the two symlink permission failures and concurrent usage.json atomic-replace failure remain. Do not attribute these failures to P06-T03 docs or mark the task done until the gate is genuinely green."
     ]
   }
 }

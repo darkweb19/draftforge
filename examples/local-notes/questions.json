@@ -1,0 +1,14 @@
+{
+  "kind": "questions",
+  "questions": {
+    "revision": 1,
+    "items": [
+      {
+        "id": "storage",
+        "prompt": "Where should the generated search index be stored?",
+        "blocking": true,
+        "answer": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "kind": "plan",
+  "plan": {
+    "revision": 1,
+    "assumptions": ["One local user indexes UTF-8 Markdown files."],
+    "decisions": [
+      {
+        "id": "ADR-001",
+        "title": "Local JSON search index",
+        "adrFile": "docs/decisions/0001-local-json-index.md",
+        "context": "Search must work offline without a database service.",
+        "decision": "Persist a generated JSON index beside the notes directory.",
+        "consequences": ["Index writes are atomic and notes remain read-only."]
+      }
+    ],
+    "phases": [
+      {
+        "id": "phase-01",
+        "name": "Offline index",
+        "objective": "Index and search local Markdown notes.",
+        "exitCriteria": ["Index and search tests pass.", "No network is required."]
+      }
+    ],
+    "tasks": [
+      {
+        "id": "P01-T01",
+        "title": "Set up the package and build the Markdown index",
+        "phaseId": "phase-01",
+        "objective": "Create the npm test foundation, then scan Markdown and atomically persist a local index.",
+        "dependsOn": [],
+        "ownedPaths": ["package.json", "package-lock.json", "src/indexer/", "test/indexer.test.ts"],
+        "requiredContext": ["idea.md", "docs/decisions/0001-local-json-index.md"],
+        "relevantAdrs": ["docs/decisions/0001-local-json-index.md"],
+        "acceptanceCriteria": ["Package metadata defines an npm test script for the project.", "Notes are indexed without modification.", "Hidden directories are skipped."],
+        "verification": ["npm test"],
+        "exclusions": ["No search CLI in this task."]
+      },
+      {
+        "id": "P01-T02",
+        "title": "Add index and search commands",
+        "phaseId": "phase-01",
+        "objective": "Expose indexing and keyword search through the CLI.",
+        "dependsOn": ["P01-T01"],
+        "ownedPaths": ["src/cli/", "test/cli.test.ts"],
+        "requiredContext": ["idea.md"],
+        "relevantAdrs": ["docs/decisions/0001-local-json-index.md"],
+        "acceptanceCriteria": ["Commands work from a terminal.", "A missing directory exits non-zero."],
+        "verification": ["npm test"],
+        "exclusions": ["No web UI, sync, or watcher."]
+      }
+    ],
+    "risks": [
+      {
+        "id": "R1",
+        "description": "An interrupted write could leave invalid JSON.",
+        "mitigation": "Write a temporary file and atomically rename it."
+      }
+    ],
+    "verification": ["npm test"]
+  }
+}

@@ -6,8 +6,8 @@ machine-first review.
 
 > **Release status:** this repository is an unpublished Phase 6 release
 > candidate. Phases 0 through 5 and the package/upgrade foundations (P06-T01 and
-> P06-T02) are complete. Documentation, cross-platform release evidence, and
-> publication are still in progress.
+> P06-T02) are complete. Operator documentation is available; cross-platform
+> release evidence and publication are still in progress.
 
 ## Install the current release candidate
 
@@ -32,6 +32,9 @@ that exact artifact in a clean temporary project and exercises the npm-generated
 binary without a provider or network call. Remove the global release candidate
 with `npm uninstall --global draftforge`.
 
+See [Installation](https://github.com/darkweb19/draftforge/blob/main/docs/INSTALLATION.md)
+for registry status, initialization, upgrades, and uninstall details.
+
 ## Shortest working flow
 
 These are installed-CLI commands. The generated configuration defaults to
@@ -41,13 +44,19 @@ worker.
 ```text
 draftforge init my-app
 cd my-app
+git init
 # Describe the project in idea.md.
+# Add the DraftForge ignore entries shown below to .gitignore.
+git add AGENTS.md CLAUDE.md PHASES.md SESSION.md idea.md .gitignore .draftforge/config.json .draftforge/schema .draftforge/state.json .draftforge/tasks/.gitkeep .draftforge/runs/.gitkeep
+git commit -m "chore: initialize project"
 draftforge doctor
 draftforge plan idea.md
 draftforge plan --run
 draftforge plan --answer <id>=<text>
 draftforge plan --run
 draftforge plan --approve --by <actor>
+git add .draftforge/planning.json .draftforge/state.json .draftforge/tasks PHASES.md SESSION.md docs/decisions
+git commit -m "chore: approve DraftForge plan"
 draftforge run --by <actor>
 draftforge review --by <actor>
 ```
@@ -59,10 +68,26 @@ worktrees; `review` runs verification, scope and secret checks, independent
 review, bounded repair, and integration. Use `draftforge resume` only for an
 interrupted attempt; it does not claim new work.
 
+`init` does not create `.gitignore`. Before the first commit, add these entries
+yourself so local credentials and generated run/backup artifacts do not make the
+project root dirty:
+
+```gitignore
+.draftforge/config.local.json
+.draftforge/runs/*
+!.draftforge/runs/.gitkeep
+.draftforge/backups/
+```
+
+Ignored files are not encrypted or safe to share. The explicit `git add` lists
+above avoid staging unrelated files. `<id>`, `<text>`, and `<actor>` are
+placeholders that must be replaced.
+
 ## Providers
 
-Each role is routed independently in `.draftforge/config.json` or the ignored
-`.draftforge/config.local.json` override.
+Each role is routed independently in `.draftforge/config.json` or the optional
+`.draftforge/config.local.json` override. Add the local override to the target
+project's `.gitignore`; initialization does not do that for you.
 
 | Adapter | Authentication | Architect/reviewer | Workspace worker |
 | --- | --- | --- | --- |
@@ -110,6 +135,10 @@ For harness adapters, `provider-default` lets the configured Codex or Claude
 harness choose its default model. API adapters resolve it inside their provider
 layer. Set an explicit model string when a role must use a specific model.
 
+See [Provider setup](https://github.com/darkweb19/draftforge/blob/main/docs/PROVIDERS.md)
+for copyable configurations for all four adapters and their authentication
+boundaries.
+
 ## Planning checkpoints
 
 `draftforge plan <idea.md>` initializes or resumes
@@ -147,7 +176,9 @@ or exhausted work moving to `blocked`. `.draftforge/state.json` is canonical;
 
 Attempt manifests, events, results, and worktrees live under
 `.draftforge/runs/`. Interrupted, uncertain, blocked, or invalid work is retained
-for inspection. Worktrees isolate Git changes; they are not security sandboxes.
+for inspection. Add `.draftforge/runs/*` plus the `.gitkeep` exception shown in
+the quickstart to `.gitignore`; initialized targets do not receive that rule
+automatically. Worktrees isolate Git changes; they are not security sandboxes.
 
 Verification accepts only `npm run <script>` and `node <relative-path>` with
 literal arguments. It does not allow shell operators, redirection, absolute
@@ -179,6 +210,9 @@ state, in-flight or uncertain execution/review work, modified managed schemas,
 unrecognized recovery artifacts, and symlinked or non-regular managed paths. If
 a target drifts after planning, the operation fails with a completed backup and
 requires the same manifest-based recovery before retrying.
+
+Read the full [upgrade and recovery guide](https://github.com/darkweb19/draftforge/blob/main/docs/UPGRADING.md)
+before changing a project with retained work.
 
 ## Command reference
 
@@ -231,43 +265,51 @@ provider calls.
 
 ## Current release work
 
-- P06-T01: portable npm artifact and installed executable smoke - complete.
-- P06-T02: explicit upgrade, backup, and compatibility workflow - complete.
-- P06-T03: operator documentation and examples - next.
-- P06-T04: real OS-matrix CI and scoped provenance publication - pending.
-- P06-T05: one exact tarball passing the joined clean-machine gate - pending.
-
+The portable package, explicit upgrade path, and operator guides are present.
 Public publication remains blocked until an owned npm scope and trusted
-publisher are configured. Local package and live-provider smoke results do not
-replace the pending Ubuntu, macOS, and Windows release evidence.
+publisher are configured. Real Ubuntu, macOS, and Windows evidence for one
+exact tarball is also pending; local package and provider smoke results do not
+replace that release gate.
 
 ## Security boundaries
 
-Keep credentials in environment variables. Put machine-specific role overrides
-in ignored `.draftforge/config.local.json`; never commit secrets. Local harness
-workers can access their assigned workspace, while API providers receive the
-prompt and context sent to them.
+Keep credentials in environment variables. Add machine-specific
+`.draftforge/config.local.json` to `.gitignore` yourself; never commit secrets.
+Local harness workers can access their assigned workspace, while API providers
+receive the prompt and context sent to them.
 
-Ignored worktrees and run artifacts may contain project data. Ignored means Git
-does not stage them by default; it does not mean encrypted, deleted, or safe to
-share. Review retained artifacts before collecting diagnostics and never attach
+Retained worktrees and run artifacts may contain project data. They are ignored
+only after the operator adds the rules shown above. Ignored means Git does not
+stage them by default; it does not mean encrypted, deleted, or safe to share.
+Review retained artifacts before collecting diagnostics and never attach
 environment files, credentials, raw provider output, or unrelated source.
 
 A dedicated private vulnerability-reporting channel has not been published yet.
 Do not put sensitive vulnerability details in a public issue.
 
+Read the [security policy](https://github.com/darkweb19/draftforge/blob/main/SECURITY.md)
+for the private-reporting fallback, evidence rules, worktree risks, and provider
+boundaries.
+
 ## Repository map
 
-- [Product specification](docs/PRODUCT_SPEC.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Execution and review protocol](docs/PROTOCOL.md)
-- [Release artifact and upgrade ADR](docs/decisions/0011-release-artifact-upgrades-and-provenance.md)
-- [Example idea](examples/idea.md)
-- [Delivery phases](PHASES.md)
-- [Generated session handoff](SESSION.md)
+- [Product specification](https://github.com/darkweb19/draftforge/blob/main/docs/PRODUCT_SPEC.md)
+- [Architecture](https://github.com/darkweb19/draftforge/blob/main/docs/ARCHITECTURE.md)
+- [Execution and review protocol](https://github.com/darkweb19/draftforge/blob/main/docs/PROTOCOL.md)
+- [Installation](https://github.com/darkweb19/draftforge/blob/main/docs/INSTALLATION.md)
+- [Provider setup](https://github.com/darkweb19/draftforge/blob/main/docs/PROVIDERS.md)
+- [Complete example](https://github.com/darkweb19/draftforge/blob/main/docs/EXAMPLE.md)
+- [Project upgrades](https://github.com/darkweb19/draftforge/blob/main/docs/UPGRADING.md)
+- [Troubleshooting](https://github.com/darkweb19/draftforge/blob/main/docs/TROUBLESHOOTING.md)
+- [Security policy](https://github.com/darkweb19/draftforge/blob/main/SECURITY.md)
+- [Changelog](https://github.com/darkweb19/draftforge/blob/main/CHANGELOG.md)
+- [Release artifact and upgrade ADR](https://github.com/darkweb19/draftforge/blob/main/docs/decisions/0011-release-artifact-upgrades-and-provenance.md)
+- [Example idea](https://github.com/darkweb19/draftforge/blob/main/examples/local-notes/idea.md)
+- [Delivery phases](https://github.com/darkweb19/draftforge/blob/main/PHASES.md)
+- [Generated session handoff](https://github.com/darkweb19/draftforge/blob/main/SESSION.md)
 
-Values such as `my-app`, `<id>`, `<text>`, `<actor>`, and response filenames are
-placeholders for the examples above.
+Values such as `my-app`, `<id>`, `<text>`, `<actor>`, `example-operator`, and
+response filenames are placeholders for the examples above.
 
 ## License
 
