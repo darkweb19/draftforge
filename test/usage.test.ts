@@ -313,7 +313,7 @@ async function withTempRoot(fn: (root: string) => Promise<void>): Promise<void> 
   try {
     await fn(root);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 }
 
@@ -379,6 +379,12 @@ test("concurrent appends from several writers all survive in the ledger", async 
     assert.equal(records.length, 10, "every concurrent writer's line must be present");
     const ids = new Set(records.map((r) => r.callId));
     assert.equal(ids.size, 10);
+    const aggregate = await readUsageAggregate(root, "run-1");
+    assert.equal(aggregate.inputTokens, 1_000);
+    assert.equal(aggregate.outputTokens, 2_000);
+    assert.equal(aggregate.totalTokens, 3_000);
+    assert.ok(aggregate.costUsd !== null && Math.abs(aggregate.costUsd - 1) < Number.EPSILON);
+    assert.equal(aggregate.calls, 10);
   });
 });
 
