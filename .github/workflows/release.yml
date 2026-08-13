@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,6 +12,7 @@ permissions:
 jobs:
   package:
     name: Verify tag and package both release identities
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       artifact_name: ${{ steps.mirror-check.outputs.artifact_name }}
@@ -70,6 +72,7 @@ jobs:
 
   artifact-smoke:
     name: Release gate for both artifacts (${{ matrix.os }}, Node 22)
+    if: github.event_name == 'push'
     needs: package
     runs-on: ${{ matrix.os }}
     strategy:
@@ -100,6 +103,7 @@ jobs:
 
   publication-authority:
     name: Verify stable publication prerequisites
+    if: github.event_name == 'push'
     needs: [package, artifact-smoke]
     runs-on: ubuntu-latest
     permissions:
@@ -135,6 +139,7 @@ jobs:
 
   publish-github-packages:
     name: Publish or verify owner-scoped GitHub Packages mirror
+    if: github.event_name == 'push'
     needs: [package, publication-authority]
     runs-on: ubuntu-latest
     permissions:
@@ -205,6 +210,7 @@ jobs:
 
   publish-npmjs:
     name: Publish or verify canonical npmjs package with provenance
+    if: github.event_name == 'push'
     needs: [package, publish-github-packages]
     runs-on: ubuntu-latest
     environment: npmjs
@@ -249,6 +255,7 @@ jobs:
 
   verify-registries:
     name: Verify each registry against its expected artifact digest
+    if: github.event_name == 'push'
     needs: [package, publish-github-packages, publish-npmjs]
     runs-on: ubuntu-latest
     permissions:
@@ -278,6 +285,7 @@ jobs:
 
   github-release:
     name: Publish canonical GitHub Release assets
+    if: github.event_name == 'push'
     needs: [package, verify-registries]
     runs-on: ubuntu-latest
     permissions:
@@ -326,6 +334,7 @@ jobs:
 
   verify-release-assets:
     name: Verify canonical GitHub Release asset digests
+    if: github.event_name == 'push'
     needs: [package, github-release]
     runs-on: ubuntu-latest
     permissions:
@@ -351,3 +360,72 @@ jobs:
           gh release download "$GITHUB_REF_NAME" --pattern 'draftforge-dev-draftforge-0.1.0.tgz' --dir release-assets
           gh release download "$GITHUB_REF_NAME" --pattern 'draftforge-dev-draftforge-0.1.0.tgz.sha256' --dir release-assets
           node scripts/release-check.mjs release-assets/draftforge-dev-draftforge-0.1.0.tgz --tag "$GITHUB_REF_NAME" --sha256 "${{ needs.package.outputs.canonical_sha256 }}" --downloaded --require-checksum-sidecar
+
+  recover-npmjs-v0-1-0:
+    name: Recover or verify canonical npmjs v0.1.0
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: npmjs
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      EXPECTED_COMMIT: 109b3ef543879027bbb1c3e3db4f99ec960c484b
+      EXPECTED_SHA256: 270cbc73b3a7887d915ea045b9d6bfc2904dc286d2e36ac20f0179d72cd4c1b1
+      PACKAGE_NAME: "@draftforge-dev/draftforge"
+      PACKAGE_VERSION: 0.1.0
+      REGISTRY: https://registry.npmjs.org/
+      TARBALL: release-artifact/draftforge-dev-draftforge-0.1.0.tgz
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v0.1.0
+          fetch-depth: 0
+      - name: Verify the immutable recovery source
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test "$(git rev-parse 'v0.1.0^{commit}')" = "$EXPECTED_COMMIT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm install --global npm@11.16.0
+      - run: npm ci
+      - run: npm run build
+      - name: Rebuild and bind the canonical tarball to the recorded digest
+        shell: bash
+        run: |
+          mkdir release-artifact
+          npm pack --ignore-scripts --pack-destination release-artifact
+          node scripts/release-check.mjs "$TARBALL" --tag v0.1.0 --sha256 "$EXPECTED_SHA256"
+      - name: Publish only if absent, then verify registry bytes and provenance
+        shell: bash
+        run: |
+          set +e
+          tarball_url="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.tarball --registry "$REGISTRY" 2>registry-view-error.txt)"
+          view_status=$?
+          set -e
+          if [ "$view_status" -ne 0 ]; then
+            grep -Eq 'E404|404 Not Found' registry-view-error.txt || {
+              echo "npmjs lookup failed for a reason other than an absent v0.1.0; refusing recovery publication." >&2
+              exit 1
+            }
+            npm publish "./$TARBALL" --provenance --access public --registry "$REGISTRY"
+            tarball_url="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.tarball --registry "$REGISTRY")"
+          fi
+          test -n "$tarball_url"
+          mkdir registry-npmjs
+          curl --fail --location --retry 4 --retry-all-errors \
+            --output registry-npmjs/draftforge-dev-draftforge-0.1.0.tgz \
+            "$tarball_url"
+          npm view "$PACKAGE_NAME@$PACKAGE_VERSION" --registry "$REGISTRY" --json \
+            > registry-npmjs/metadata.json
+          node scripts/release-check.mjs \
+            registry-npmjs/draftforge-dev-draftforge-0.1.0.tgz \
+            --tag v0.1.0 \
+            --sha256 "$EXPECTED_SHA256" \
+            --downloaded \
+            --npm-metadata registry-npmjs/metadata.json

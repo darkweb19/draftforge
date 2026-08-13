@@ -191,12 +191,13 @@ test("CI runs the full gate on one checksum-addressed tarball on every supported
 
 test("release preflights authority, resumes safely, and verifies every public artifact", async () => {
   const workflow = await fixture(".github/workflows/release.yml");
-  assert.match(workflow, /^on:\n  push:\n    tags:\n      - "v\*"$/mu);
-  assert.doesNotMatch(workflow, /pull_request|workflow_dispatch|branches:/u);
+  assert.match(workflow, /^on:\n  push:\n    tags:\n      - "v\*"\n  workflow_dispatch:$/mu);
+  assert.doesNotMatch(workflow, /pull_request|branches:/u);
   assertOfficialActionMajors(workflow);
   assertPinnedNpmAfterSetupNode(workflow);
 
   const packageJob = job(workflow, "package");
+  assert.match(packageJob, /if: github\.event_name == 'push'/u);
   assert.match(packageJob, /git rev-parse HEAD/u);
   assert.match(packageJob, /git status --porcelain --untracked-files=all/u);
   assert.match(packageJob, /npm ci[\s\S]*npm run build[\s\S]*npm pack --ignore-scripts[\s\S]*name=@darkweb19\/draftforge[\s\S]*npm pack \.\/mirror-source/u);
@@ -204,12 +205,14 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.match(packageJob, /--identity github[\s\S]*--source-tarball/u);
 
   const gate = job(workflow, "artifact-smoke");
+  assert.match(gate, /if: github\.event_name == 'push'/u);
   assert.match(gate, /os: \[ubuntu-latest, macos-latest, windows-latest\]/u);
   assert.match(gate, /npm ci[\s\S]*npm run check/u);
   assert.equal((gate.match(/release-gate\.mjs/gu) ?? []).length, 2);
   assert.match(gate, /--identity github[\s\S]*--checksum/u);
 
   const authority = job(workflow, "publication-authority");
+  assert.match(authority, /if: github\.event_name == 'push'/u);
   assert.match(authority, /needs: \[package, artifact-smoke\]/u);
   assert.match(authority, /contents: read/u);
   assert.match(authority, /NPM_TRUSTED_PUBLISHER_CONFIGURED: \$\{\{ vars\.NPM_TRUSTED_PUBLISHER_CONFIGURED \}\}/u);
@@ -221,6 +224,7 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.match(authority, /--npm-bootstrap-metadata npmjs-bootstrap\.json/u);
 
   const githubPackages = job(workflow, "publish-github-packages");
+  assert.match(githubPackages, /if: github\.event_name == 'push'/u);
   assert.match(githubPackages, /needs: \[package, publication-authority\]/u);
   assert.match(githubPackages, /packages: write/u);
   assert.doesNotMatch(githubPackages, /id-token: write|contents: write/u);
@@ -238,6 +242,7 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.match(githubPackages, /\.repository\.full_name[\s\S]*darkweb19\/draftforge/u);
 
   const npmjs = job(workflow, "publish-npmjs");
+  assert.match(npmjs, /if: github\.event_name == 'push'/u);
   assert.match(npmjs, /needs: \[package, publish-github-packages\]/u);
   assert.match(npmjs, /environment: npmjs/u);
   assert.match(npmjs, /id-token: write/u);
@@ -256,6 +261,7 @@ test("release preflights authority, resumes safely, and verifies every public ar
   }
 
   const registryGate = job(workflow, "verify-registries");
+  assert.match(registryGate, /if: github\.event_name == 'push'/u);
   assert.match(registryGate, /needs: \[package, publish-github-packages, publish-npmjs\]/u);
   assert.match(registryGate, /packages: read/u);
   assert.match(registryGate, /registry\.npmjs\.org/u);
@@ -268,6 +274,7 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.match(registryGate, /npm view[\s\S]*--json[\s\S]*--npm-metadata/u);
 
   const githubRelease = job(workflow, "github-release");
+  assert.match(githubRelease, /if: github\.event_name == 'push'/u);
   assert.match(githubRelease, /needs: \[package, verify-registries\]/u);
   assert.match(githubRelease, /contents: write/u);
   assert.doesNotMatch(githubRelease, /id-token: write|packages: write/u);
@@ -277,6 +284,7 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.doesNotMatch(githubRelease, /--clobber/u);
 
   const releaseAssets = job(workflow, "verify-release-assets");
+  assert.match(releaseAssets, /if: github\.event_name == 'push'/u);
   assert.match(releaseAssets, /needs: \[package, github-release\]/u);
   assert.match(releaseAssets, /contents: read/u);
   assert.match(releaseAssets, /gh release download/u);
@@ -286,7 +294,53 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.doesNotMatch(releaseAssets, /\.tgz\*/u);
   assert.match(releaseAssets, /release-check\.mjs[\s\S]*--sha256[\s\S]*--require-checksum-sidecar/u);
 
-  assert.equal((workflow.match(/npm pack/gu) ?? []).length, 2, "release must pack exactly the canonical and mirror artifacts");
+  assert.equal((packageJob.match(/npm pack/gu) ?? []).length, 2, "tag release must pack exactly the canonical and mirror artifacts");
   assert.doesNotMatch(workflow, /NPM_TOKEN|_authToken|npm_[A-Za-z0-9]{20,}/u);
   assert.deepEqual([...workflow.matchAll(/secrets\.([A-Z0-9_]+)/gu)], [], "release must not use a PAT or registry secret");
+});
+
+test("manual v0.1.0 recovery uses the npm trusted workflow and cannot run tag publication jobs", async () => {
+  const workflow = await fixture(".github/workflows/release.yml");
+  const recovery = job(workflow, "recover-npmjs-v0-1-0");
+  const expectedCommit = "109b3ef543879027bbb1c3e3db4f99ec960c484b";
+  const expectedSha256 = "270cbc73b3a7887d915ea045b9d6bfc2904dc286d2e36ac20f0179d72cd4c1b1";
+
+  assert.match(workflow, /NPM_TRUSTED_PUBLISHER_WORKFLOW: \$\{\{ vars\.NPM_TRUSTED_PUBLISHER_WORKFLOW \}\}/u);
+  assert.doesNotMatch(workflow, /release-recovery\.yml/u);
+  assert.match(recovery, /if: github\.event_name == 'workflow_dispatch'/u);
+  assert.doesNotMatch(recovery, /needs:/u);
+  assert.match(recovery, /environment: npmjs/u);
+  assert.match(recovery, /permissions:\n      contents: read\n      id-token: write/u);
+  assert.doesNotMatch(recovery, /contents: write|packages: (?:read|write)/u);
+
+  assert.match(recovery, /uses: actions\/checkout@v7[\s\S]*ref: v0\.1\.0[\s\S]*fetch-depth: 0/u);
+  assert.match(recovery, new RegExp(`EXPECTED_COMMIT: ${expectedCommit}`, "u"));
+  assert.match(recovery, /git rev-parse HEAD[\s\S]*git rev-parse 'v0\.1\.0\^\{commit\}'/u);
+  assert.match(recovery, /uses: actions\/setup-node@v7[\s\S]*node-version: 22/u);
+  assert.doesNotMatch(recovery, /registry-url:/u);
+  assert.match(recovery, /npm install --global npm@11\.16\.0[\s\S]*npm ci[\s\S]*npm run build/u);
+
+  assert.match(recovery, new RegExp(`EXPECTED_SHA256: ${expectedSha256}`, "u"));
+  assert.match(recovery, /TARBALL: release-artifact\/draftforge-dev-draftforge-0\.1\.0\.tgz/u);
+  assert.equal((recovery.match(/npm pack/gu) ?? []).length, 1);
+  assert.match(recovery, /release-check\.mjs "\$TARBALL" --tag v0\.1\.0 --sha256 "\$EXPECTED_SHA256"/u);
+  assert.match(recovery, /npm view[\s\S]*view_status[\s\S]*E404\|404 Not Found[\s\S]*refusing recovery publication/u);
+  assert.equal((recovery.match(/npm publish/gu) ?? []).length, 1);
+  assert.match(recovery, /npm publish "\.\/\$TARBALL" --provenance --access public --registry "\$REGISTRY"/u);
+  assert.doesNotMatch(recovery, /npm publish "\$TARBALL"/u);
+  assert.match(recovery, /--sha256 "\$EXPECTED_SHA256"[\s\S]*--downloaded[\s\S]*--npm-metadata registry-npmjs\/metadata\.json/u);
+  assert.doesNotMatch(recovery, /npm\.pkg\.github\.com|GH_PACKAGES|gh release|release upload|github\.token|secrets\.|NPM_TOKEN|NODE_AUTH_TOKEN|_authToken/u);
+
+  for (const name of [
+    "package",
+    "artifact-smoke",
+    "publication-authority",
+    "publish-github-packages",
+    "publish-npmjs",
+    "verify-registries",
+    "github-release",
+    "verify-release-assets",
+  ]) {
+    assert.match(job(workflow, name), /if: github\.event_name == 'push'/u, `${name} must not run during manual recovery`);
+  }
 });
