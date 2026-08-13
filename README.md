@@ -4,33 +4,46 @@ DraftForge is a local-first CLI that turns a rough Markdown idea into recorded
 architecture decisions, an approved task graph, isolated worker execution, and
 machine-first review.
 
-> **Release status:** this repository is an unpublished Phase 6 release
-> candidate. Phases 0 through 5 and the package/upgrade foundations (P06-T01 and
-> P06-T02) are complete. Operator documentation is available; cross-platform
-> release evidence and publication are still in progress.
+> **Release identity:** `@draftforge-dev/draftforge@0.1.0` is the initial public
+> CLI version. Check the [npm package](https://www.npmjs.com/package/@draftforge-dev/draftforge)
+> and [GitHub releases](https://github.com/darkweb19/draftforge/releases) for
+> current availability and release records.
 
-## Install the current release candidate
+## Install
 
 Requirements: Node.js 22 or newer and Git. Windows, macOS, and Linux are the
-release targets; the final three-platform installed-tarball gate has not passed
-yet.
+supported release targets.
 
-The package is still private while an owned npm scope is selected. The unscoped
-`draftforge` package on npm belongs to an unrelated project, so do not install
-it. Build and verify this repository's tarball instead:
+The public package identity is `@draftforge-dev/draftforge`, with npmjs as its
+canonical registry. The unscoped `draftforge` package on npm belongs to an
+unrelated project.
+
+```bash
+npm install --global @draftforge-dev/draftforge
+draftforge --version
+```
+
+Repository developers can build and verify the local `0.1.0` tarball instead:
 
 ```bash
 npm install
 npm run package:pack
-npm run package:smoke -- ./draftforge-0.0.0.tgz
-npm install --global ./draftforge-0.0.0.tgz
+npm run package:smoke -- ./draftforge-dev-draftforge-0.1.0.tgz
+npm install --global ./draftforge-dev-draftforge-0.1.0.tgz
 draftforge --version
 ```
 
 The tarball name follows the version in `package.json`. `package:smoke` installs
 that exact artifact in a clean temporary project and exercises the npm-generated
-binary without a provider or network call. Remove the global release candidate
-with `npm uninstall --global draftforge`.
+binary without a provider or network call. Remove the globally installed package
+with `npm uninstall --global @draftforge-dev/draftforge`.
+
+Release automation also publishes owner-scoped mirror
+`@darkweb19/draftforge@0.1.0` to GitHub Packages from the same source commit.
+Both packages expose the same `draftforge` binary. Their tarballs have separate
+digests because the mirror has a different manifest name and publish registry.
+Users should install the canonical npmjs package above; the mirror is not the
+default install source.
 
 See [Installation](https://github.com/darkweb19/draftforge/blob/main/docs/INSTALLATION.md)
 for registry status, initialization, upgrades, and uninstall details.
@@ -263,13 +276,15 @@ smoke tests are opt-in with `DRAFTFORGE_LIVE_SMOKE=1` and still require the
 corresponding local login or API-key variable. Routine checks do not make paid
 provider calls.
 
-## Current release work
+## Release records
 
-The portable package, explicit upgrade path, and operator guides are present.
-Public publication remains blocked until an owned npm scope and trusted
-publisher are configured. Real Ubuntu, macOS, and Windows evidence for one
-exact tarball is also pending; local package and provider smoke results do not
-replace that release gate.
+`package.json` is the version authority. Canonical npmjs package
+`@draftforge-dev/draftforge` and GitHub Packages mirror
+`@darkweb19/draftforge` are built from one commit with only the mirror manifest
+name and registry changed. Each tarball has its own digest and both are
+installed-tested across Ubuntu, macOS, and Windows. GitHub Release carries the
+canonical npmjs tarball and checksum; a local smoke result alone is not release
+evidence.
 
 ## Security boundaries
 
@@ -284,8 +299,8 @@ stage them by default; it does not mean encrypted, deleted, or safe to share.
 Review retained artifacts before collecting diagnostics and never attach
 environment files, credentials, raw provider output, or unrelated source.
 
-A dedicated private vulnerability-reporting channel has not been published yet.
-Do not put sensitive vulnerability details in a public issue.
+Do not put sensitive vulnerability details in a public issue. Use the security
+policy to find the current private-reporting path or its safe fallback.
 
 Read the [security policy](https://github.com/darkweb19/draftforge/blob/main/SECURITY.md)
 for the private-reporting fallback, evidence rules, worktree risks, and provider
@@ -304,6 +319,7 @@ boundaries.
 - [Security policy](https://github.com/darkweb19/draftforge/blob/main/SECURITY.md)
 - [Changelog](https://github.com/darkweb19/draftforge/blob/main/CHANGELOG.md)
 - [Release artifact and upgrade ADR](https://github.com/darkweb19/draftforge/blob/main/docs/decisions/0011-release-artifact-upgrades-and-provenance.md)
+- [Owner-scoped GitHub Packages ADR](https://github.com/darkweb19/draftforge/blob/main/docs/decisions/0012-owner-scoped-github-packages-mirror.md)
 - [Example idea](https://github.com/darkweb19/draftforge/blob/main/examples/local-notes/idea.md)
 - [Delivery phases](https://github.com/darkweb19/draftforge/blob/main/PHASES.md)
 - [Generated session handoff](https://github.com/darkweb19/draftforge/blob/main/SESSION.md)

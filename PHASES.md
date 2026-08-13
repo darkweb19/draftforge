@@ -87,9 +87,20 @@ Goal: publish a portable CLI suitable for real projects.
 Deliverables:
 
 - Cross-platform package, executable smoke tests, and upgrade/migration strategy.
-- GitHub Actions for checks and package provenance.
+- GitHub Actions for checks, npm provenance, a repository-linked GitHub npm
+  package, and a GitHub Release.
 - Installation, provider setup, examples, troubleshooting, and security documentation.
-- One exact npm tarball tested through its installed binary on Windows, macOS,
-  and Linux before tag-gated publication.
+- Both registry-specific tarballs tested through their installed `draftforge`
+  binary on Windows, macOS, and Linux before tag-gated publication.
+- Version `0.1.0` published as public `@draftforge-dev/draftforge` on npmjs and
+  as owner-scoped mirror `@darkweb19/draftforge` on GitHub Packages. Both are
+  built from the same commit and expose `draftforge`, but their constrained
+  manifest-name/registry delta produces distinct tarballs and digests. GitHub
+  Release `v0.1.0` attaches the canonical npmjs tarball and checksum. npmjs is
+  the canonical installation registry.
 
-Exit gate: clean-machine smoke tests pass on Windows, macOS, and Linux; the package can scaffold and resume an example project.
+Exit gate: clean-machine smoke tests pass on Windows, macOS, and Linux; the
+package can scaffold and resume an example project; both registry tarballs pass
+the three-OS installed-binary gate; and version `0.1.0` exists on both registries
+plus GitHub Release with the identities, allowed manifest delta, and separate
+artifact digests verified.

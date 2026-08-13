@@ -2,6 +2,12 @@
 
 Status: accepted
 
+> GitHub Packages topology is partially superseded by
+> [ADR 0012](0012-owner-scoped-github-packages-mirror.md): the mirror is
+> `@darkweb19/draftforge`, is separately packed with a constrained manifest
+> delta and its own digest, and uses the repository `GITHUB_TOKEN` without a new
+> GitHub organization, PAT, or GitHub Packages bootstrap.
+
 ## Decision
 
 DraftForge releases one ESM npm CLI for Node.js 22 and newer. The npm tarball is
@@ -33,12 +39,31 @@ checks must pass, and GitHub Actions publishes the already-tested tarball throug
 npm trusted publishing with provenance and least-privilege OIDC permissions.
 DraftForge does not use a long-lived npm token in the workflow.
 
-The public registry identity is deliberately not guessed. The unscoped
-`draftforge` name is already owned by an unrelated package, and this repository
-has no authenticated npm identity from which an owned scope can be proven. The
-package remains private until an owned scope is selected and the matching npm
-trusted publisher is configured. That prerequisite blocks publication, not the
-portable-package, upgrade, documentation, or CI work that precedes it.
+The first public release is version `0.1.0` under the npm identity
+`@draftforge-dev/draftforge`. npmjs is the canonical installation registry.
+That same already-tested `.tgz`, without a rebuild or repack, is also published
+as a public, repository-linked GitHub npm package and attached to published
+GitHub Release `v0.1.0` alongside its checksum. The recorded artifact digest must
+agree across CI evidence, both registries, and the GitHub Release asset.
+
+These external writes use separate jobs and authorities. The npmjs job receives
+`id-token: write` for trusted publishing and provenance; the GitHub Packages job
+receives `packages: write`; and the GitHub Release job receives
+`contents: write`. Each retains only the minimum read permissions it needs. The
+GitHub Packages job uses the repository `GITHUB_TOKEN` when the selected GitHub
+namespace and repository linkage support it. Because the npm organization name
+does not prove a matching GitHub owner or cross-owner authority, an unsupported
+cross-owner publication requires a separately approved least-privilege GitHub
+credential; the workflow must not infer or silently provision one.
+
+The public npm identity is now user-confirmed as
+`@draftforge-dev/draftforge`; the unscoped `draftforge` name remains owned by an
+unrelated package. The package remains private until metadata and the matching
+npm trusted publisher are configured. The npm organization does not establish
+that a same-named GitHub owner exists or that repository `darkweb19/draftforge`
+can publish into that GitHub namespace, so GitHub Packages authority remains a
+separate prerequisite. These prerequisites block publication, not the portable
+package, upgrade, documentation, or CI work that precedes it.
 
 ## Why
 
@@ -55,9 +80,9 @@ explicit locked upgrade makes compatibility observable and testable while
 preserving the local-first rule that existing project files belong to the user.
 
 Publishing from a different build than the one CI tested reopens the clean-tree
-gap. Publishing the tested tarball with an identity-bound workflow and
-provenance gives the release one auditable path without storing a registry token
-in the repository or its settings.
+gap. Publishing the tested tarball with identity-bound workflows, registry
+provenance, and a matching release checksum gives the release one auditable path
+without storing an npm registry token in the repository or its settings.
 
 ## Consequences
 
@@ -66,7 +91,14 @@ in the repository or its settings.
 - A separate upgrade task owns persistence, backups, schema refresh, and
   compatibility fixtures; ordinary reads remain non-persisting.
 - Documentation and CI can proceed independently after the package foundation.
-- The final release gate cannot publish until the user provides an owned npm
-  scope and configures its trusted publisher.
+- The final release gate cannot publish until the user proves control of
+  `@draftforge-dev`, configures its npm trusted publisher, and resolves whether
+  the repository `GITHUB_TOKEN` can create and link the matching GitHub npm
+  package. Any required cross-owner GitHub credential needs separate approval.
 - Clean-machine OS-matrix evidence, not platform simulation alone, is required
   before Phase 6 can close.
+- Phase 6 closes only after public `@draftforge-dev/draftforge@0.1.0` exists on
+  npmjs, its exact tested tarball is mirrored as a repository-linked GitHub npm
+  package, and GitHub Release `v0.1.0` contains that tarball plus its checksum.
+- npmjs remains the default installation source; the GitHub package is a mirror,
+  not a replacement canonical registry.

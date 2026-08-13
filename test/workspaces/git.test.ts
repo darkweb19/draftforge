@@ -849,7 +849,7 @@ test("review snapshots fail closed when an ignored parent briefly redirects into
     if (event === "before-file-open") {
       await rename(ignored, held);
       try {
-        await symlink(tracked, ignored, "dir");
+        await symlink(tracked, ignored, process.platform === "win32" ? "junction" : "dir");
       } catch (error: unknown) {
         await rename(held, ignored);
         throw error;

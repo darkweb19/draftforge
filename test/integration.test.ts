@@ -30,7 +30,10 @@ test("a successor worktree starts from a project head containing its integrated 
   git(root, ["merge", "--no-ff", "--no-edit", predecessor.branch]);
 
   const successor = await workspace.createOrRecover({ runId: "run-dependency", taskId: "P05-T02", attemptId: "successor" });
-  assert.equal(await readFile(join(successor.path, "predecessor.txt"), "utf8"), "integrated predecessor\n");
+  assert.equal(
+    (await readFile(join(successor.path, "predecessor.txt"), "utf8")).replaceAll("\r\n", "\n"),
+    "integrated predecessor\n",
+  );
   assert.equal(git(successor.path, ["merge-base", "--is-ancestor", predecessor.branch, "HEAD"]), "");
 });
 

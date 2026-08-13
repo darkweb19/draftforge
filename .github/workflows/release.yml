@@ -1,0 +1,353 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Verify tag and package both release identities
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.mirror-check.outputs.artifact_name }}
+      canonical_tarball: ${{ steps.canonical-check.outputs.tarball }}
+      canonical_sha256: ${{ steps.canonical-check.outputs.sha256 }}
+      mirror_tarball: ${{ steps.mirror-check.outputs.tarball }}
+      mirror_sha256: ${{ steps.mirror-check.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify clean tagged checkout
+        shell: bash
+        run: |
+          test "$GITHUB_REF_TYPE" = "tag"
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$GITHUB_REF_NAME")"
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm install --global npm@11.16.0
+      - run: npm ci
+      - run: npm run build
+      - name: Pack canonical npmjs artifact and owner-scoped GitHub mirror
+        shell: bash
+        run: |
+          mkdir release-artifact mirror-source
+          npm pack --ignore-scripts --pack-destination release-artifact
+          cp -R dist templates README.md LICENSE package.json mirror-source/
+          npm pkg set --prefix mirror-source \
+            'name=@darkweb19/draftforge' \
+            'publishConfig.registry=https://npm.pkg.github.com/'
+          npm pack ./mirror-source --ignore-scripts --pack-destination release-artifact
+      - name: Verify canonical identity, tag, tarball, and checksum
+        id: canonical-check
+        run: node scripts/release-check.mjs release-artifact/draftforge-dev-draftforge-0.1.0.tgz --tag "$GITHUB_REF_NAME"
+      - name: Verify mirror identity, minimal difference, tag, and checksum
+        id: mirror-check
+        run: >-
+          node scripts/release-check.mjs release-artifact/darkweb19-draftforge-0.1.0.tgz
+          --identity github
+          --source-tarball release-artifact/draftforge-dev-draftforge-0.1.0.tgz
+          --tag "$GITHUB_REF_NAME"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.mirror-check.outputs.artifact_name }}
+          path: |
+            ${{ steps.canonical-check.outputs.tarball }}
+            ${{ steps.canonical-check.outputs.tarball }}.sha256
+            ${{ steps.mirror-check.outputs.tarball }}
+            ${{ steps.mirror-check.outputs.tarball }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  artifact-smoke:
+    name: Release gate for both artifacts (${{ matrix.os }}, Node 22)
+    needs: package
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm install --global npm@11.16.0
+      - run: npm ci
+      - run: npm run check
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.package.outputs.artifact_name }}
+          path: release-artifact
+      - name: Verify both artifacts and test both npm-installed CLIs
+        shell: bash
+        run: |
+          node scripts/release-check.mjs "${{ needs.package.outputs.canonical_tarball }}" --tag "$GITHUB_REF_NAME" --sha256 "${{ needs.package.outputs.canonical_sha256 }}"
+          node scripts/release-check.mjs "${{ needs.package.outputs.mirror_tarball }}" --identity github --source-tarball "${{ needs.package.outputs.canonical_tarball }}" --tag "$GITHUB_REF_NAME" --sha256 "${{ needs.package.outputs.mirror_sha256 }}"
+          node scripts/release-gate.mjs "${{ needs.package.outputs.canonical_tarball }}" --checksum "${{ needs.package.outputs.canonical_tarball }}.sha256" --tag "$GITHUB_REF_NAME"
+          node scripts/release-gate.mjs "${{ needs.package.outputs.mirror_tarball }}" --identity github --checksum "${{ needs.package.outputs.mirror_tarball }}.sha256" --tag "$GITHUB_REF_NAME"
+
+  publication-authority:
+    name: Verify stable publication prerequisites
+    needs: [package, artifact-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm install --global npm@11.16.0
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.package.outputs.artifact_name }}
+          path: release-artifact
+      - name: Reject missing or mismatched publication configuration
+        env:
+          NPM_TRUSTED_PUBLISHER_CONFIGURED: ${{ vars.NPM_TRUSTED_PUBLISHER_CONFIGURED }}
+          NPM_TRUSTED_PUBLISHER_REPOSITORY: ${{ vars.NPM_TRUSTED_PUBLISHER_REPOSITORY }}
+          NPM_TRUSTED_PUBLISHER_WORKFLOW: ${{ vars.NPM_TRUSTED_PUBLISHER_WORKFLOW }}
+          NPM_TRUSTED_PUBLISHER_ENVIRONMENT: ${{ vars.NPM_TRUSTED_PUBLISHER_ENVIRONMENT }}
+        run: >-
+          node scripts/release-check.mjs "${{ needs.package.outputs.canonical_tarball }}"
+          --tag "$GITHUB_REF_NAME"
+          --sha256 "${{ needs.package.outputs.canonical_sha256 }}"
+          --downloaded
+          --publication-config
+      - name: Verify npmjs bootstrap and reachability before any stable write
+        shell: bash
+        run: |
+          npm ping --registry https://registry.npmjs.org/
+          npm view @draftforge-dev/draftforge@0.1.0-bootstrap.0 --registry https://registry.npmjs.org/ --json > npmjs-bootstrap.json
+          node scripts/release-check.mjs "${{ needs.package.outputs.canonical_tarball }}" --tag "$GITHUB_REF_NAME" --sha256 "${{ needs.package.outputs.canonical_sha256 }}" --downloaded --npm-bootstrap-metadata npmjs-bootstrap.json
+
+  publish-github-packages:
+    name: Publish or verify owner-scoped GitHub Packages mirror
+    needs: [package, publication-authority]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com/
+          scope: "@darkweb19"
+      - run: npm install --global npm@11.16.0
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.package.outputs.artifact_name }}
+          path: release-artifact
+      - run: >-
+          node scripts/release-check.mjs "${{ needs.package.outputs.mirror_tarball }}"
+          --identity github
+          --source-tarball "${{ needs.package.outputs.canonical_tarball }}"
+          --tag "$GITHUB_REF_NAME"
+          --sha256 "${{ needs.package.outputs.mirror_sha256 }}"
+          --downloaded
+      - name: Publish only if absent, then download and verify the expected mirror digest
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA256: ${{ needs.package.outputs.mirror_sha256 }}
+        run: |
+          package=@darkweb19/draftforge
+          version=0.1.0
+          registry=https://npm.pkg.github.com/
+          set +e
+          tarball_url="$(npm view "$package@$version" dist.tarball --registry "$registry" 2>registry-view-error.txt)"
+          view_status=$?
+          set -e
+          if [ "$view_status" -ne 0 ]; then
+            grep -Eq 'E404|404 Not Found' registry-view-error.txt || {
+              echo "GitHub Packages lookup failed for a reason other than an absent mirror version; refusing to publish." >&2
+              exit 1
+            }
+            npm publish "${{ needs.package.outputs.mirror_tarball }}" --access public --registry "$registry"
+            tarball_url="$(npm view "$package@$version" dist.tarball --registry "$registry")"
+          fi
+          mkdir registry-github
+          curl --fail --location --retry 4 --retry-all-errors --header "Authorization: Bearer $NODE_AUTH_TOKEN" --output registry-github/darkweb19-draftforge-0.1.0.tgz "$tarball_url"
+          node scripts/release-check.mjs registry-github/darkweb19-draftforge-0.1.0.tgz --identity github --source-tarball "${{ needs.package.outputs.canonical_tarball }}" --tag "$GITHUB_REF_NAME" --sha256 "$EXPECTED_SHA256" --downloaded
+      - name: Require the mirror to be public and linked before npmjs publication
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          package_api=/users/darkweb19/packages/npm/draftforge
+          visibility="$(gh api "$package_api" --jq .visibility)" || {
+            echo "The repository GITHUB_TOKEN could not inspect the @darkweb19/draftforge package after publication." >&2
+            exit 1
+          }
+          if [ "$visibility" != "public" ]; then
+            echo "The first GitHub Packages publication is private by default. darkweb19 must make @darkweb19/draftforge public in its package settings, then rerun this tag workflow; the existing version will be digest-verified instead of republished." >&2
+            exit 1
+          fi
+          repository="$(gh api "$package_api" --jq '.repository.full_name // empty')"
+          if [ "$repository" != "darkweb19/draftforge" ]; then
+            echo "Link @darkweb19/draftforge to darkweb19/draftforge in GitHub package settings, then rerun; the existing version will be digest-verified instead of republished." >&2
+            exit 1
+          fi
+
+  publish-npmjs:
+    name: Publish or verify canonical npmjs package with provenance
+    needs: [package, publish-github-packages]
+    runs-on: ubuntu-latest
+    environment: npmjs
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm install --global npm@11.16.0
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.package.outputs.artifact_name }}
+          path: release-artifact
+      - run: node scripts/release-check.mjs "${{ needs.package.outputs.canonical_tarball }}" --tag "$GITHUB_REF_NAME" --sha256 "${{ needs.package.outputs.canonical_sha256 }}" --downloaded
+      - name: Publish only if absent, then download and verify provenance and digest
+        shell: bash
+        env:
+          EXPECTED_SHA256: ${{ needs.package.outputs.canonical_sha256 }}
+        run: |
+          package=@draftforge-dev/draftforge
+          version=0.1.0
+          registry=https://registry.npmjs.org/
+          set +e
+          tarball_url="$(npm view "$package@$version" dist.tarball --registry "$registry" 2>registry-view-error.txt)"
+          view_status=$?
+          set -e
+          if [ "$view_status" -ne 0 ]; then
+            grep -Eq 'E404|404 Not Found' registry-view-error.txt || {
+              echo "npmjs lookup failed for a reason other than an absent stable version; refusing to publish." >&2
+              exit 1
+            }
+            npm publish "${{ needs.package.outputs.canonical_tarball }}" --provenance --access public --registry "$registry"
+            tarball_url="$(npm view "$package@$version" dist.tarball --registry "$registry")"
+          fi
+          mkdir registry-npmjs
+          curl --fail --location --retry 4 --retry-all-errors --output registry-npmjs/draftforge-dev-draftforge-0.1.0.tgz "$tarball_url"
+          npm view "$package@$version" --registry "$registry" --json > registry-npmjs/metadata.json
+          node scripts/release-check.mjs registry-npmjs/draftforge-dev-draftforge-0.1.0.tgz --tag "$GITHUB_REF_NAME" --sha256 "$EXPECTED_SHA256" --downloaded --npm-metadata registry-npmjs/metadata.json
+
+  verify-registries:
+    name: Verify each registry against its expected artifact digest
+    needs: [package, publish-github-packages, publish-npmjs]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com/
+          scope: "@darkweb19"
+      - run: npm install --global npm@11.16.0
+      - name: Download both registry artifacts and check their distinct expected digests
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir registry-npmjs registry-github
+          npmjs_url="$(npm view @draftforge-dev/draftforge@0.1.0 dist.tarball --registry https://registry.npmjs.org/)"
+          github_url="$(npm view @darkweb19/draftforge@0.1.0 dist.tarball --registry https://npm.pkg.github.com/)"
+          curl --fail --location --retry 4 --retry-all-errors --output registry-npmjs/draftforge-dev-draftforge-0.1.0.tgz "$npmjs_url"
+          curl --fail --location --retry 4 --retry-all-errors --header "Authorization: Bearer $NODE_AUTH_TOKEN" --output registry-github/darkweb19-draftforge-0.1.0.tgz "$github_url"
+          npm view @draftforge-dev/draftforge@0.1.0 --registry https://registry.npmjs.org/ --json > registry-npmjs/metadata.json
+          node scripts/release-check.mjs registry-npmjs/draftforge-dev-draftforge-0.1.0.tgz --tag "$GITHUB_REF_NAME" --sha256 "${{ needs.package.outputs.canonical_sha256 }}" --downloaded --npm-metadata registry-npmjs/metadata.json
+          node scripts/release-check.mjs registry-github/darkweb19-draftforge-0.1.0.tgz --identity github --source-tarball registry-npmjs/draftforge-dev-draftforge-0.1.0.tgz --tag "$GITHUB_REF_NAME" --sha256 "${{ needs.package.outputs.mirror_sha256 }}" --downloaded
+
+  github-release:
+    name: Publish canonical GitHub Release assets
+    needs: [package, verify-registries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm install --global npm@11.16.0
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.package.outputs.artifact_name }}
+          path: release-artifact
+      - run: node scripts/release-check.mjs "${{ needs.package.outputs.canonical_tarball }}" --tag "$GITHUB_REF_NAME" --sha256 "${{ needs.package.outputs.canonical_sha256 }}" --downloaded
+      - name: Create or resume release without replacing canonical assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tarball=draftforge-dev-draftforge-0.1.0.tgz
+          checksum="$tarball.sha256"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            test "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" = "false"
+            mkdir existing-assets
+            for asset in "$tarball" "$checksum"; do
+              if gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' | grep -Fx "$asset" >/dev/null; then
+                gh release download "$GITHUB_REF_NAME" --pattern "$asset" --dir existing-assets
+              fi
+            done
+            if [ -f "existing-assets/$tarball" ]; then
+              node scripts/release-check.mjs "existing-assets/$tarball" --tag "$GITHUB_REF_NAME" --sha256 "${{ needs.package.outputs.canonical_sha256 }}" --downloaded
+            fi
+            if [ -f "existing-assets/$checksum" ]; then
+              cmp "existing-assets/$checksum" "${{ needs.package.outputs.canonical_tarball }}.sha256"
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+          for asset_path in "${{ needs.package.outputs.canonical_tarball }}" "${{ needs.package.outputs.canonical_tarball }}.sha256"; do
+            asset="$(basename "$asset_path")"
+            if ! gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' | grep -Fx "$asset" >/dev/null; then
+              gh release upload "$GITHUB_REF_NAME" "$asset_path"
+            fi
+          done
+
+  verify-release-assets:
+    name: Verify canonical GitHub Release asset digests
+    needs: [package, github-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm install --global npm@11.16.0
+      - name: Download and verify exactly the canonical tarball and checksum
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir release-assets
+          expected_assets="$(printf '%s\n' 'draftforge-dev-draftforge-0.1.0.tgz' 'draftforge-dev-draftforge-0.1.0.tgz.sha256' | sort)"
+          actual_assets="$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' | sort)"
+          if [ "$actual_assets" != "$expected_assets" ]; then
+            echo "GitHub Release must contain exactly the canonical npmjs tarball and its checksum." >&2
+            exit 1
+          fi
+          gh release download "$GITHUB_REF_NAME" --pattern 'draftforge-dev-draftforge-0.1.0.tgz' --dir release-assets
+          gh release download "$GITHUB_REF_NAME" --pattern 'draftforge-dev-draftforge-0.1.0.tgz.sha256' --dir release-assets
+          node scripts/release-check.mjs release-assets/draftforge-dev-draftforge-0.1.0.tgz --tag "$GITHUB_REF_NAME" --sha256 "${{ needs.package.outputs.canonical_sha256 }}" --downloaded --require-checksum-sidecar

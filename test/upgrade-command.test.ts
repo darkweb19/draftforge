@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { main, type CliIo } from "../src/cli.js";
 import { runInit } from "../src/commands/init.js";
 import { readProjectState, writeFileAtomic } from "../src/state/files.js";
@@ -18,6 +18,28 @@ async function withProject(run: (root: string) => Promise<void>): Promise<void> 
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+async function createSymlinkOrSkip(
+  t: TestContext,
+  target: string,
+  path: string,
+  type: "dir" | "file",
+): Promise<boolean> {
+  try {
+    await symlink(target, path, type);
+    return true;
+  } catch (error: unknown) {
+    if (hasCode(error, "EPERM") || hasCode(error, "EACCES") || hasCode(error, "ENOTSUP")) {
+      t.skip("This host does not permit creating symbolic links.");
+      return false;
+    }
+    throw error;
+  }
+}
+
+function hasCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
 async function writeOlderState(root: string, version: 1 | 2): Promise<void> {
@@ -269,7 +291,7 @@ test("orphan recovery artifacts refuse upgrade instead of being ignored", async 
   }
 });
 
-test("refuses a redirected managed schema before it can overwrite external bytes", async () => {
+test("refuses a redirected managed schema before it can overwrite external bytes", async (t) => {
   const external = await mkdtemp(join(tmpdir(), "draftforge-upgrade-external-schema-"));
   try {
     await withProject(async (root) => {
@@ -280,7 +302,9 @@ test("refuses a redirected managed schema before it can overwrite external bytes
       const legacy = await readFile(resolve(import.meta.dirname, "fixtures/release/upgrade/state-v2.schema.json"), "utf8");
       await writeFile(externalStateSchema, legacy, "utf8");
       await rm(resolve(root, ".draftforge/schema"), { recursive: true });
-      await symlink(externalSchema, resolve(root, ".draftforge/schema"), "dir");
+      if (!(await createSymlinkOrSkip(t, externalSchema, resolve(root, ".draftforge/schema"), "dir"))) {
+        return;
+      }
       const rawBefore = await readFile(resolve(root, ".draftforge/state.json"), "utf8");
 
       await assert.rejects(runUpgrade(root, { now: UPGRADE_TIME }), /\.draftforge\/schema is a symbolic link/u);
@@ -293,7 +317,7 @@ test("refuses a redirected managed schema before it can overwrite external bytes
   }
 });
 
-test("refuses a symlinked orphan attempt event instead of silently skipping it", async () => {
+test("refuses a symlinked orphan attempt event instead of silently skipping it", async (t) => {
   const external = await mkdtemp(join(tmpdir(), "draftforge-upgrade-external-event-"));
   try {
     await withProject(async (root) => {
@@ -301,7 +325,9 @@ test("refuses a symlinked orphan attempt event instead of silently skipping it",
       await writeFile(externalEvent, "external event must remain untouched\n", "utf8");
       const attempts = resolve(root, ".draftforge/runs/run-orphan/attempts");
       await mkdir(attempts, { recursive: true });
-      await symlink(externalEvent, resolve(attempts, "attempt-orphan.events.jsonl"), "file");
+      if (!(await createSymlinkOrSkip(t, externalEvent, resolve(attempts, "attempt-orphan.events.jsonl"), "file"))) {
+        return;
+      }
       const rawBefore = await readFile(resolve(root, ".draftforge/state.json"), "utf8");
 
       await assert.rejects(runUpgrade(root, { now: UPGRADE_TIME }), /recovery attempt entry is not a regular file/u);

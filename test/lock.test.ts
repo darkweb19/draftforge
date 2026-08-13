@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -95,36 +96,30 @@ test("does not steal a lock owned by a live process, but waits for it", async ()
   }
 });
 
-test("two concurrent callers serialize instead of one refusing", async () => {
+test("many concurrent callers serialize instead of refusing", async () => {
   const root = await mkdtemp(join(tmpdir(), "draftforge-serialize-lock-"));
   try {
     await mkdir(resolve(root, ".draftforge"));
-    const order: string[] = [];
-    const observed: string[][] = [];
+    let active = 0;
+    let peakActive = 0;
+    const completed: string[] = [];
 
     async function critical(name: string): Promise<void> {
       await withProjectLock(root, `operation ${name}`, async () => {
-        order.push(`${name}-start`);
+        active += 1;
+        peakActive = Math.max(peakActive, active);
         // Yield so a concurrent (buggy) implementation would interleave here.
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
-        order.push(`${name}-end`);
-        observed.push([...order]);
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+        completed.push(name);
+        active -= 1;
       });
     }
 
-    await Promise.all([critical("a"), critical("b")]);
+    await Promise.all(Array.from({ length: 10 }, (_, index) => critical(String(index))));
 
-    // Each critical section must complete (`-start` immediately followed by
-    // `-end`) before the other one starts; no interleaving is observed.
-    assert.equal(order.length, 4);
-    const firstPair = order.slice(0, 2);
-    const secondPair = order.slice(2, 4);
-    assert.equal(firstPair[0]?.endsWith("-start"), true);
-    assert.equal(firstPair[1]?.endsWith("-end"), true);
-    assert.equal(firstPair[0]?.split("-")[0], firstPair[1]?.split("-")[0]);
-    assert.equal(secondPair[0]?.endsWith("-start"), true);
-    assert.equal(secondPair[1]?.endsWith("-end"), true);
-    assert.equal(secondPair[0]?.split("-")[0], secondPair[1]?.split("-")[0]);
+    assert.equal(peakActive, 1);
+    assert.equal(completed.length, 10);
+    assert.equal(new Set(completed).size, 10);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -179,3 +174,114 @@ test("exports the default wait budget and poll interval", () => {
   assert.equal(DEFAULT_LOCK_WAIT_TIMEOUT_MS, 30_000);
   assert.equal(DEFAULT_LOCK_POLL_INTERVAL_MS, 25);
 });
+
+test("does not turn a permanent lock inspection failure into contention", async () => {
+  const root = await mkdtemp(join(tmpdir(), "draftforge-invalid-lock-entry-"));
+  try {
+    await mkdir(resolve(root, ".draftforge/state.lock"), { recursive: true });
+
+    await assert.rejects(
+      withProjectLock(root, "inspect invalid lock entry", async () => undefined, {
+        waitTimeoutMs: 250,
+        pollIntervalMs: 5,
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.doesNotMatch(error.message, /Timed out .* waiting for the project lock/);
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("keeps a recent malformed lock fail-closed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "draftforge-malformed-lock-"));
+  const lockPath = resolve(root, ".draftforge/state.lock");
+  try {
+    await mkdir(resolve(root, ".draftforge"));
+    await writeFile(lockPath, "{not-json\n", "utf8");
+
+    await assert.rejects(
+      withProjectLock(root, "inspect malformed lock", async () => undefined, {
+        waitTimeoutMs: 100,
+        pollIntervalMs: 5,
+      }),
+      /Timed out after 100ms waiting for the project lock/,
+    );
+    assert.equal(await readFile(lockPath, "utf8"), "{not-json\n");
+  } finally {
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test(
+  "waits through a transient Windows sharing violation while inspecting the lock",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "draftforge-shared-lock-"));
+    const lockPath = resolve(root, ".draftforge/state.lock");
+    let blocker: ChildProcessWithoutNullStreams | undefined;
+    try {
+      await mkdir(resolve(root, ".draftforge"));
+      await writeFile(
+        lockPath,
+        `${JSON.stringify({
+          token: "temporarily-shared-token",
+          pid: process.pid,
+          acquiredAt: new Date().toISOString(),
+          operation: "temporary sharing violation",
+        })}\n`,
+        "utf8",
+      );
+
+      blocker = spawn(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          [
+            "$lockPath = [Environment]::GetEnvironmentVariable('DRAFTFORGE_TEST_LOCK_PATH')",
+            "$stream = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)",
+            "[Console]::Out.WriteLine('ready')",
+            "[Console]::Out.Flush()",
+            "Start-Sleep -Milliseconds 150",
+            "$stream.Dispose()",
+            "Remove-Item -LiteralPath $lockPath -Force",
+          ].join("; "),
+        ],
+        {
+          env: { ...process.env, DRAFTFORGE_TEST_LOCK_PATH: lockPath },
+        },
+      );
+
+      await new Promise<void>((resolveReady, rejectReady) => {
+        let output = "";
+        blocker?.stdout.setEncoding("utf8");
+        blocker?.stdout.on("data", (chunk: string) => {
+          output += chunk;
+          if (output.includes("ready")) {
+            resolveReady();
+          }
+        });
+        blocker?.once("error", rejectReady);
+        blocker?.once("exit", (code) => {
+          if (!output.includes("ready")) {
+            rejectReady(new Error(`sharing-violation helper exited with code ${String(code)}`));
+          }
+        });
+      });
+
+      const value = await withProjectLock(root, "wait through sharing violation", async () => "acquired", {
+        waitTimeoutMs: 5_000,
+        pollIntervalMs: 5,
+      });
+      assert.equal(value, "acquired");
+    } finally {
+      blocker?.kill();
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  },
+);

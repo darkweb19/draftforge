@@ -3,6 +3,7 @@ import { dirname, relative, resolve } from "node:path";
 import type { UsageCallRecord } from "../application/usage.js";
 import type { AttemptUsage } from "../domain/execution.js";
 import { writeFileAtomic } from "./files.js";
+import { withProjectLock } from "./lock.js";
 
 const RUNS_DIRECTORY = ".draftforge/runs";
 const SAFE_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -11,9 +12,9 @@ const SAFE_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
  * The durable run-level usage ledger.
  *
  * `usage.jsonl` is the source of truth: each call appends exactly one line in
- * a single append-mode write (`flag: "a"`), which is atomic enough for
- * line-sized writes under concurrent dispatch and never loses an entry, even
- * when several writers append at once.
+ * a single append-mode write (`flag: "a"`) under the project lock. The lock
+ * serializes the append and cache refresh across concurrent processes so no
+ * entry is lost and an older aggregate cannot overwrite a newer one.
  *
  * `usage.json` is a derived, disposable cache — the current aggregate,
  * rewritten atomically (temp file + rename, via `writeFileAtomic`) from the
@@ -37,10 +38,11 @@ export async function appendUsageCall(root: string, runId: string, record: Usage
   }
   const ledgerPath = resolveUnderRoot(root, usageLedgerPath(runId));
   await mkdir(dirname(ledgerPath), { recursive: true });
-  await appendFile(ledgerPath, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "a" });
-
-  const records = await readUsageLedger(root, runId);
-  await writeUsageAggregate(root, runId, aggregateRecords(records));
+  await withProjectLock(root, `record usage for ${runId}`, async () => {
+    await appendFile(ledgerPath, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "a" });
+    const records = await readUsageLedger(root, runId);
+    await writeUsageAggregate(root, runId, aggregateRecords(records));
+  });
 }
 
 /**

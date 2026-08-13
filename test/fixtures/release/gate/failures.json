@@ -1,0 +1,64 @@
+{
+  "source": {
+    "name": "@draftforge-dev/draftforge",
+    "version": "0.1.0",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/darkweb19/draftforge.git"
+    }
+  },
+  "packed": {
+    "name": "@draftforge-dev/draftforge",
+    "version": "0.1.0",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/darkweb19/draftforge.git"
+    },
+    "bin": {
+      "draftforge": "./dist/bin.js"
+    },
+    "engines": {
+      "node": ">=22"
+    },
+    "publishConfig": {
+      "access": "public",
+      "registry": "https://registry.npmjs.org/"
+    }
+  },
+  "shape": {
+    "expected": [
+      "package/package.json",
+      "package/dist/bin.js",
+      "package/templates/AGENTS.md"
+    ],
+    "staleDist": [
+      "package/package.json",
+      "package/dist/bin.js",
+      "package/dist/stale.js",
+      "package/templates/AGENTS.md"
+    ],
+    "missingTemplate": [
+      "package/package.json",
+      "package/dist/bin.js"
+    ]
+  },
+  "provenance": {
+    "present": {
+      "name": "@draftforge-dev/draftforge",
+      "version": "0.1.0",
+      "dist": {
+        "attestations": {
+          "url": "https://registry.npmjs.org/-/npm/v1/attestations/draftforge",
+          "provenance": {
+            "predicateType": "https://slsa.dev/provenance/v1"
+          }
+        }
+      }
+    },
+    "missing": {
+      "name": "@draftforge-dev/draftforge",
+      "version": "0.1.0",
+      "dist": {}
+    }
+  }
+}

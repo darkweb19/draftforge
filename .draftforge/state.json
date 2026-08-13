@@ -10,8 +10,8 @@
     "phaseName": "Release",
     "stage": "implementation",
     "status": "in_progress",
-    "currentTask": null,
-    "nextTask": "P06-T03"
+    "currentTask": "P06-T04",
+    "nextTask": null
   },
   "phases": [
     {
@@ -287,7 +287,7 @@
     {
       "id": "P06-T03",
       "title": "Installation, provider, example, troubleshooting, and security guides",
-      "status": "ready",
+      "status": "done",
       "taskFile": ".draftforge/tasks/P06-T03.md",
       "dependsOn": [
         "P06-T01"
@@ -298,7 +298,7 @@
     {
       "id": "P06-T04",
       "title": "Cross-platform CI, scoped publication, and npm provenance",
-      "status": "ready",
+      "status": "active",
       "taskFile": ".draftforge/tasks/P06-T04.md",
       "dependsOn": [
         "P06-T01"
@@ -331,12 +331,13 @@
     "docs/decisions/0008-provider-adapter-contract.md",
     "docs/decisions/0009-durable-execution-attempts.md",
     "docs/decisions/0010-review-recovery-contract.md",
-    "docs/decisions/0011-release-artifact-upgrades-and-provenance.md"
+    "docs/decisions/0011-release-artifact-upgrades-and-provenance.md",
+    "docs/decisions/0012-owner-scoped-github-packages-mirror.md"
   ],
   "handoff": {
-    "updatedAt": "2026-08-10T18:42:56.812Z",
+    "updatedAt": "2026-08-13T11:10:00.000-04:00",
     "updatedBy": "codex",
-    "summary": "Phase 6 (Release) remains in progress. P06-T03 implementation is complete across README, installation, provider, upgrade, troubleshooting, example, security, changelog, and documentation-test artifacts. Independent review found no remaining material documentation issue, and the exact local tarball passed package smoke plus the complete deterministic no-provider example through npm's real Windows command shim. P06-T03 remains ready rather than done because the required repository-wide npm run check is red on this Windows/Node 24 machine in four pre-existing tests outside the task's owned paths: one Git line-ending assertion, two symlink tests that cannot create links without Windows Developer Mode, and one concurrent atomic usage-ledger rename. The requested npm-scope setup checklist is in to-do-sujan.md.",
+    "summary": "Phase 6 (Release) remains in progress. P06-T03 is done and the current full repository check passes (498 passed, 10 intentional skips, zero failures). Draft PR #6 contains the reviewed 0.1.0 release pipeline. P06-T04 is active: npmjs remains canonical @draftforge-dev/draftforge@0.1.0, while ADR 0012 replaces the unavailable cross-owner GitHub namespace with owner-scoped mirror @darkweb19/draftforge@0.1.0. Both tarballs come from one source commit, differ only in package name and publish registry, carry separate digests, and are installed-tested on Node 22 across Ubuntu, macOS, and Windows. The first pushed CI run exposed an installed-fixture shim failure; the local revision pins npm 11.16.0 and invokes the validated installed target portably, but external acceptance still requires a green rerun. P06-T05 remains backlog. Stable publication still requires the npmjs bootstrap and trusted-publisher setup; the first GitHub Packages publish may require a manual Public/link action followed by an idempotent workflow rerun.",
     "decisionsLocked": [
       "Use strict TypeScript, Node.js, npm, and ESM.",
       "Route architect, worker, and reviewer roles through provider adapters with configurable model IDs.",
@@ -380,25 +381,28 @@
       "Persist a reviewer lease and integration intent before their external side effects so crash recovery neither calls a reviewer twice nor merges accepted work twice.",
       "Treat ignored untracked trees as untrusted input: enumerate incrementally with hard entry, file, depth, and byte caps, and bind every traversal step to canonical path plus device/inode identity before content enters secret scanning or reviewer context.",
       "Freeze a reviewer block verdict over passing machine evidence as terminal unknown for the initial release; it expresses inability to decide, not an actionable review rejection.",
-      "Treat one exact npm tarball as the release artifact and test it through the package manager's installed binary on Ubuntu, macOS, and Windows, including Node.js 22.",
+      "Build canonical npmjs and owner-scoped GitHub Packages tarballs from one tagged source commit, constrain their difference to package name and publish registry, and test both through the package manager's installed binary on Ubuntu, macOS, and Windows with Node.js 22.",
       "Use package.json as the sole version authority; runtime output, tag, tarball metadata, and published version must agree.",
       "Persist schema migrations only through an explicit locked upgrade that validates first, creates a recoverable backup, refreshes only recognized DraftForge-owned schemas, and preserves user-authored files.",
-      "Keep the package private until an owned npm scope is proven because the unscoped draftforge name belongs to an unrelated package.",
+      "Publish the CLI as public @draftforge-dev/draftforge; npmjs is the canonical registry and the unscoped draftforge name remains unrelated.",
       "Publish only a tag-matched, already-tested tarball through npm trusted publishing with provenance and least-privilege OIDC; do not store a long-lived npm token.",
+      "Publish the owner-scoped GitHub Packages mirror as @darkweb19/draftforge from the same tagged source commit; only package name and publish registry may differ from canonical @draftforge-dev/draftforge, and each tarball has its own verified SHA-256 digest.",
+      "Attach only the canonical npmjs tarball plus its checksum to GitHub Release v0.1.0; verify the mirror independently and use the repository GITHUB_TOKEN rather than a PAT or new GitHub organization.",
+      "Keep npmjs, GitHub Packages, and GitHub Release jobs separate and safely rerunnable because cross-registry publication is not atomic.",
       "Decompose Phase 6 into the portable package foundation (P06-T01), three independent tracks for upgrades, documentation, and CI/provenance (P06-T02 through P06-T04), then the joined clean-machine gate (P06-T05).",
       "During explicit upgrades, write recognized schemas first, SESSION.md second, and canonical state last so schemaVersion is the durable commit marker and a retry re-plans any incomplete upgrade.",
       "Treat managed upgrade paths and recovery artifacts as untrusted filesystem input: canonicalize the project root, refuse internal symlinks or non-regular entries, and bind every target write to the bytes or absence observed during planning."
     ],
-    "openQuestions": [
-      "Which npm scope does the user own and want to use for the public DraftForge CLI package? The unscoped draftforge name is unavailable."
-    ],
+    "openQuestions": [],
     "blockers": [
-      "P06-T03 cannot move to done until npm run check passes. On Windows with Node 24, test/integration.test.ts has a core.autocrlf-sensitive newline assertion, two test/upgrade-command.test.ts cases fail to create symlinks with EPERM because Developer Mode is unavailable, and test/usage.test.ts hits EPERM while concurrent writers replace usage.json. These paths are outside the P06-T03 task contract and require an explicit portability repair or a green supported environment."
+      "P06-T04 cannot pass its external acceptance gate until the owner-scoped revision is committed, pushed to draft PR #6, and the real Node 22 Ubuntu, macOS, and Windows GitHub Actions jobs accept both package identities.",
+      "Stable npmjs publication is blocked until 0.1.0-bootstrap.0 exists under @draftforge-dev/draftforge and npm trusted publishing is configured for darkweb19/draftforge, release.yml, and environment npmjs. The first @darkweb19/draftforge GitHub Packages publish may remain private or unlinked; make it Public and link it to darkweb19/draftforge, then rerun the same tag workflow."
     ],
     "nextActions": [
-      "Resolve or explicitly authorize a bounded Windows portability repair for the four repository-wide npm run check failures, rerun the full gate, then move P06-T03 from ready to done.",
-      "Dispatch the non-publication portions of P06-T04 (ready) for real Ubuntu/macOS/Windows Node 22 checks and provenance workflow contracts; public publication cannot be enabled until the user supplies an owned npm scope.",
-      "Join all three tracks in P06-T05 and require the same content-addressed tarball to pass clean Ubuntu, macOS, and Windows installed-binary gates before Phase 6 closes.",
+      "Commit and push the reviewed owner-scoped revision to draft PR #6, then require a green Ubuntu/macOS/Windows Node 22 CI matrix for both tarballs before moving P06-T04 to done.",
+      "Build and test the exact npmjs 0.1.0-bootstrap.0 tarball, publish it under a non-latest bootstrap tag with the user's npm 2FA approval, and configure npm trusted publishing for darkweb19/draftforge, release.yml, and environment npmjs.",
+      "Configure the npm trusted-publisher repository variables and protected npmjs environment; GitHub Packages uses only the built-in GITHUB_TOKEN and needs no PAT, secret, bootstrap, or new organization.",
+      "After the green matrix and npmjs bootstrap exist, merge the PR, tag v0.1.0, handle the expected first GitHub Packages visibility/link checkpoint if it occurs, rerun idempotently, and verify npmjs, GitHub Packages, and GitHub Release.",
       "Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli when an authenticated local harness is available."
     ],
     "gotchas": [
@@ -440,7 +444,7 @@
       "Ignored untracked directories are secret-scanned recursively but fail closed above depth 32, 1,024 entries, 1,024 files, 1 MiB per file, or 8 MiB aggregate. Incremental enumeration and ancestor/file identity checks prevent resource exhaustion and symlink-swap substitution.",
       "The current packed CLI is inert through the npm-installed .bin symlink: the entry guard compares the symlink URL with the resolved module URL. P06-T01 must test the real installed binary, not direct dist execution.",
       "The public unscoped draftforge package is an unrelated React package at version 0.4.0. Never publish or configure automation against that name; verify an owned scope first.",
-      "npm whoami returned unauthorized on this machine. Public scope ownership and trusted-publisher configuration are external prerequisites for P06-T04 publication, not reasons to delay portable-package or documentation work.",
+      "npm whoami succeeds as sujansthadev and the owned npm organization is @draftforge-dev. No matching GitHub organization will be created: GitHub Packages uses existing owner scope @darkweb19 and the repository GITHUB_TOKEN.",
       "The current local runtime is newer than the supported floor. Platform simulation is not release evidence; Phase 6 needs real Node.js 22 jobs on Ubuntu, macOS, and Windows.",
       "Ordinary state reads currently migrate v1/v2 in memory without persisting. Preserve read-only status/doctor behavior and make P06-T02 the only deliberate persistence path.",
       "Package smoke intentionally compares an explicit tarball against the current clean dist/templates file set. CI must build before smoke and must not substitute or rebuild the supplied artifact between audit and installation.",
@@ -448,8 +452,10 @@
       "Explicit upgrade writes schemas, then SESSION.md, then canonical state. Do not move the state write earlier: its schemaVersion is the commit marker that makes partial failures retryable instead of falsely current.",
       "Upgrade backups live under ignored .draftforge/backups. On a failed-with-backup result, restore every path listed as replaced and remove every path listed as created in upgrade-manifest.json before retrying.",
       "Never relax upgrade path checks to lexical containment alone. Managed schema and recovery trees must fail closed on internal symlinks, non-regular entries, and target bytes that changed after planning.",
-      "P06-T03 focused evidence is green: six documentation tests, typecheck, lint (five pre-existing warnings), build, package pack/smoke, and the deterministic planning example through the npm-installed Windows .cmd shim. The generated tarball was removed after verification.",
-      "The 2026-08-10 full npm run check was not green on this Windows/Node 24 machine. With core.autocrlf forced false the integration newline test passes, but the two symlink permission failures and concurrent usage.json atomic-replace failure remain. Do not attribute these failures to P06-T03 docs or mark the task done until the gate is genuinely green."
+      "P06-T03 is green and done: documentation tests, typecheck, lint, build, package smoke, and the 2026-08-13 full repository check pass on this Windows/Node 24 host.",
+      "Windows usage writes now serialize the JSONL append and derived aggregate refresh under the existing bounded project lock. Windows sharing violations during lock creation or inspection retry, while permanent denial and malformed lock data remain fail-closed.",
+      "The two privileged-symlink upgrade tests skip only when the host cannot create links; capable GitHub runners still exercise them. The ignored-parent race test uses a Windows junction so its security assertion remains active locally.",
+      "The provenance URL in test/fixtures/release/gate/failures.json is intentionally synthetic fixture data, not evidence of a live npm publication."
     ]
   }
 }

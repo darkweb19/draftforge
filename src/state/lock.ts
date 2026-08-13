@@ -100,7 +100,10 @@ async function tryAcquireProjectLock(
 
   const inspection = await inspectLock(lockPath);
   if (inspection === null) {
-    return createLock(lockPath, operation);
+    // The holder released between our failed create and inspection. Start a
+    // fresh acquisition attempt so another waiter winning this gap is normal
+    // contention rather than an EEXIST failure escaping from createLock.
+    throw new RetryableLockContention();
   }
   if (!inspection.stale) {
     throw new RetryableLockContention();
@@ -118,9 +121,10 @@ async function recoverStaleLock(
   try {
     recovery = await open(recoveryPath, "wx");
   } catch (error: unknown) {
-    if (hasErrorCode(error, "EEXIST")) {
+    if (hasErrorCode(error, "EEXIST") || isRetryableWindowsSharingViolation(error)) {
       // Same condition assertNoRecoveryInProgress treats as retryable: another
-      // process is mid-recovery and will release shortly.
+      // process is mid-recovery and will release shortly. Windows reports this
+      // kind of open sharing violation as EBUSY or EPERM instead of EEXIST.
       throw new RetryableLockContention();
     }
     throw error;
@@ -135,7 +139,14 @@ async function recoverStaleLock(
     // stale observation from removing a lock acquired before recovery began.
     const current = await inspectLock(lockPath);
     if (current === null) {
-      return await createLock(lockPath, operation);
+      try {
+        return await createLock(lockPath, operation);
+      } catch (error: unknown) {
+        if (hasErrorCode(error, "EEXIST")) {
+          throw new RetryableLockContention();
+        }
+        throw error;
+      }
     }
     if (!current.stale || current.raw !== expectedRaw) {
       // Another process legitimately holds the lock now. Under the waiting
@@ -166,7 +177,18 @@ async function recoverStaleLock(
 }
 
 async function createLock(path: string, operation: string): Promise<ProjectLock> {
-  const handle = await open(path, "wx");
+  let handle: FileHandle;
+  try {
+    handle = await open(path, "wx");
+  } catch (error: unknown) {
+    if (isRetryableWindowsSharingViolation(error)) {
+      // A just-released Windows lock can remain unavailable briefly because
+      // of file sharing semantics. Reuse the bounded acquisition wait rather
+      // than failing a competing operation; other denial errors stay hard.
+      throw new RetryableLockContention();
+    }
+    throw error;
+  }
   try {
     await writeLockRecord(handle, operation, randomBytes(16).toString("hex"));
     return { handle, path };
@@ -199,6 +221,14 @@ async function inspectLock(path: string): Promise<LockInspection | null> {
   } catch (error: unknown) {
     if (hasErrorCode(error, "ENOENT")) {
       return null;
+    }
+    if (isRetryableWindowsSharingViolation(error)) {
+      // Windows (notably on synchronized filesystems) can briefly refuse a
+      // read while another process closes, renames, or removes the lock. Feed
+      // that sharing violation into the same bounded wait as live contention;
+      // permanent access denial (EACCES) and every other read failure remain
+      // hard errors.
+      throw new RetryableLockContention();
     }
     throw error;
   }
@@ -294,5 +324,22 @@ function hasErrorCode(error: unknown, code: string): boolean {
     error !== null &&
     "code" in error &&
     (error as { readonly code?: unknown }).code === code
+  );
+}
+
+function isRetryableWindowsSharingViolation(error: unknown): boolean {
+  return (
+    process.platform === "win32" &&
+    (hasErrorCode(error, "EBUSY") || hasErrorCode(error, "EPERM")) &&
+    hasErrorProperty(error, "syscall", "open")
+  );
+}
+
+function hasErrorProperty(error: unknown, property: string, expected: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    property in error &&
+    (error as Record<string, unknown>)[property] === expected
   );
 }
