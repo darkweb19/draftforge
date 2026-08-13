@@ -183,7 +183,21 @@ jobs:
               exit 1
             }
             npm publish "./${{ needs.package.outputs.mirror_tarball }}" --access public --registry "$registry"
-            tarball_url="$(npm view "$package@$version" dist.tarball --registry "$registry")"
+            for attempt in 1 2 3 4 5; do
+              set +e
+              tarball_url="$(npm view "$package@$version" dist.tarball --registry "$registry" 2>post-publish-view-error.txt)"
+              post_publish_status=$?
+              set -e
+              if [ "$post_publish_status" -eq 0 ] && [ -n "$tarball_url" ]; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                cat post-publish-view-error.txt >&2
+                echo "GitHub Packages did not expose the published mirror after 5 bounded reads; refusing to publish again." >&2
+                exit 1
+              fi
+              sleep "$attempt"
+            done
           fi
           mkdir registry-github
           curl --fail --location --retry 4 --retry-all-errors --header "Authorization: Bearer $NODE_AUTH_TOKEN" --output registry-github/darkweb19-draftforge-0.1.0.tgz "$tarball_url"
@@ -246,7 +260,21 @@ jobs:
               exit 1
             }
             npm publish "./${{ needs.package.outputs.canonical_tarball }}" --provenance --access public --registry "$registry"
-            tarball_url="$(npm view "$package@$version" dist.tarball --registry "$registry")"
+            for attempt in 1 2 3 4 5; do
+              set +e
+              tarball_url="$(npm view "$package@$version" dist.tarball --registry "$registry" 2>post-publish-view-error.txt)"
+              post_publish_status=$?
+              set -e
+              if [ "$post_publish_status" -eq 0 ] && [ -n "$tarball_url" ]; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                cat post-publish-view-error.txt >&2
+                echo "npmjs did not expose the published version after 5 bounded reads; refusing to publish again." >&2
+                exit 1
+              fi
+              sleep "$attempt"
+            done
           fi
           mkdir registry-npmjs
           curl --fail --location --retry 4 --retry-all-errors --output registry-npmjs/draftforge-dev-draftforge-0.1.0.tgz "$tarball_url"
@@ -414,7 +442,21 @@ jobs:
               exit 1
             }
             npm publish "./$TARBALL" --provenance --access public --registry "$REGISTRY"
-            tarball_url="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.tarball --registry "$REGISTRY")"
+            for attempt in 1 2 3 4 5; do
+              set +e
+              tarball_url="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.tarball --registry "$REGISTRY" 2>post-publish-view-error.txt)"
+              post_publish_status=$?
+              set -e
+              if [ "$post_publish_status" -eq 0 ] && [ -n "$tarball_url" ]; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                cat post-publish-view-error.txt >&2
+                echo "npmjs did not expose the recovered version after 5 bounded reads; refusing to publish again." >&2
+                exit 1
+              fi
+              sleep "$attempt"
+            done
           fi
           test -n "$tarball_url"
           mkdir registry-npmjs

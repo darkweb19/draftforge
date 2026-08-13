@@ -48,6 +48,16 @@ function assertPinnedNpmAfterSetupNode(workflow: string): void {
   }
 }
 
+function assertBoundedPostPublishRead(jobBody: string): void {
+  assert.equal((jobBody.match(/npm publish/gu) ?? []).length, 1, "a registry consistency retry must never republish");
+  const afterPublish = jobBody.slice(jobBody.indexOf("npm publish"));
+  assert.match(afterPublish, /npm publish[\s\S]*for attempt in 1 2 3 4 5; do/u);
+  assert.match(afterPublish, /npm view [^\n]+ dist\.tarball[^\n]+2>post-publish-view-error\.txt/u);
+  assert.match(afterPublish, /post_publish_status=\$\?[\s\S]*post_publish_status" -eq 0[\s\S]*-n "\$tarball_url"/u);
+  assert.match(afterPublish, /attempt" -eq 5[\s\S]*refusing to publish again[\s\S]*exit 1[\s\S]*sleep "\$attempt"/u);
+  assert.equal((afterPublish.match(/for attempt in 1 2 3 4 5; do/gu) ?? []).length, 1);
+}
+
 test("package metadata is the approved public npmjs identity", async () => {
   const metadata: unknown = JSON.parse(await fixture("package.json"));
   validatePackageMetadata(metadata);
@@ -240,6 +250,7 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.match(githubPackages, /first GitHub Packages publication is private by default/u);
   assert.match(githubPackages, /make @darkweb19\/draftforge public[\s\S]*rerun/u);
   assert.match(githubPackages, /\.repository\.full_name[\s\S]*darkweb19\/draftforge/u);
+  assertBoundedPostPublishRead(githubPackages);
 
   const npmjs = job(workflow, "publish-npmjs");
   assert.match(npmjs, /if: github\.event_name == 'push'/u);
@@ -253,6 +264,7 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.doesNotMatch(npmjs, /npm publish "\$\{\{ needs\.package\.outputs\.canonical_tarball \}\}"/u);
   assert.match(npmjs, /curl[\s\S]*release-check\.mjs[\s\S]*--sha256/u);
   assert.match(npmjs, /npm view[\s\S]*--json[\s\S]*--npm-metadata/u);
+  assertBoundedPostPublishRead(npmjs);
 
   for (const publishJob of [githubPackages, npmjs]) {
     assert.match(publishJob, /actions\/download-artifact@v8[\s\S]*needs\.package\.outputs\.artifact_name/u);
@@ -330,6 +342,7 @@ test("manual v0.1.0 recovery uses the npm trusted workflow and cannot run tag pu
   assert.doesNotMatch(recovery, /npm publish "\$TARBALL"/u);
   assert.match(recovery, /--sha256 "\$EXPECTED_SHA256"[\s\S]*--downloaded[\s\S]*--npm-metadata registry-npmjs\/metadata\.json/u);
   assert.doesNotMatch(recovery, /npm\.pkg\.github\.com|GH_PACKAGES|gh release|release upload|github\.token|secrets\.|NPM_TOKEN|NODE_AUTH_TOKEN|_authToken/u);
+  assertBoundedPostPublishRead(recovery);
 
   for (const name of [
     "package",
