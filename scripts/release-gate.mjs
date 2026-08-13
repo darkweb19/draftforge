@@ -491,7 +491,7 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
-function parseArguments(args) {
+export function parseArguments(args) {
   const [tarball, ...rest] = args;
   if (tarball === undefined || tarball.startsWith("--")) throw new Error(usage());
   const parsed = { tarball };
@@ -510,7 +510,7 @@ function parseArguments(args) {
   if (parsed.checksumPath !== undefined && parsed.expectedSha256 !== undefined) {
     throw new Error("Use either --checksum or --sha256, not both.");
   }
-  parsed.tag ??= process.env.GITHUB_REF_NAME ?? RELEASE_TAG;
+  parsed.tag ??= RELEASE_TAG;
   releaseIdentity(parsed.identity);
   return parsed;
 }

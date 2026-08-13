@@ -7,7 +7,7 @@ import { test, type TestContext } from "node:test";
 // The release gate is deliberately plain JavaScript so clean CI runners can
 // execute it without a TypeScript loader.
 // @ts-expect-error JavaScript executable intentionally has no declaration file.
-import { assertChecksum, assertNpmProvenance, assertTarballShape, parseChecksum, runInstalledGate, sha256, validateReleaseIdentity } from "../scripts/release-gate.mjs";
+import { assertChecksum, assertNpmProvenance, assertTarballShape, parseArguments, parseChecksum, runInstalledGate, sha256, validateReleaseIdentity } from "../scripts/release-gate.mjs";
 
 interface FixtureMetadata {
   readonly source: Record<string, unknown>;
@@ -99,6 +99,18 @@ test("checksum binds one digest to the exact tarball filename and bytes", () => 
 test("npm publication provenance fails closed when the attestation is missing", () => {
   assert.doesNotThrow(() => assertNpmProvenance(fixture.provenance.present));
   assert.throws(() => assertNpmProvenance(fixture.provenance.missing), /missing.*provenance/u);
+});
+
+test("untagged CI release gate ignores an ambient branch ref", () => {
+  const previousRefName = process.env.GITHUB_REF_NAME;
+  process.env.GITHUB_REF_NAME = "agent/release-0.1.0";
+  try {
+    assert.equal(parseArguments(["candidate.tgz"]).tag, "v0.1.0");
+    assert.equal(parseArguments(["candidate.tgz", "--tag", "v0.1.0"]).tag, "v0.1.0");
+  } finally {
+    if (previousRefName === undefined) delete process.env.GITHUB_REF_NAME;
+    else process.env.GITHUB_REF_NAME = previousRefName;
+  }
 });
 
 test("installed gate rejects an inert npm-generated binary", async (t) => {
