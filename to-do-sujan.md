@@ -1,79 +1,96 @@
 # Sujan's 0.1.0 publication setup
 
-The approved public package is `@draftforge-dev/draftforge@0.1.0`. npmjs is the
-canonical registry; GitHub Packages will be a repository-linked mirror of the
-same tested tarball. The unscoped `draftforge` package belongs to another
-project.
+The canonical package is `@draftforge-dev/draftforge@0.1.0` on npmjs. GitHub
+Packages mirrors it as `@darkweb19/draftforge@0.1.0`. Both expose the same
+`draftforge` binary, but have separate tarballs and digests because their
+manifest names and publish registries differ. Users should install the npmjs
+package.
 
-## Recommended: use an npm organization scope
+## npmjs scope and bootstrap
 
-An organization keeps the package identity separate from a personal account and makes future collaborator access easier.
+- [ ] Sign in at [npmjs.com](https://www.npmjs.com/) and enable two-factor
+  authentication. Store recovery codes securely.
+- [ ] Confirm the `draftforge-dev` npm organization exists and your account can
+  administer the `@draftforge-dev` scope.
+- [ ] Confirm the exact canonical name: `@draftforge-dev/draftforge`.
+- [ ] Complete the separately approved one-time npmjs bootstrap publication
+  needed before trusted publishing can be configured. Use a non-`latest`
+  prerelease version/tag and do not reuse it as stable `0.1.0`.
+- [ ] After `release.yml` is on the default branch, configure its npm trusted
+  publisher as described below.
 
-- [ ] Sign in at [npmjs.com](https://www.npmjs.com/). Create an account first if needed.
-- [ ] Enable two-factor authentication on the npm account and save the recovery codes somewhere secure.
-- [ ] Confirm the `draftforge-dev` organization exists. If it does not, open the profile menu and select **Add an Organization** to create it.
-- [ ] Confirm your account can administer the `@draftforge-dev` scope.
-- [ ] Select **Unlimited public packages** unless private npm packages are actually needed.
-- [ ] Confirm the exact package name: `@draftforge-dev/draftforge`.
-
-## Verify ownership locally
-
-Run these commands in a terminal. Complete browser/2FA prompts when npm requests them. Never paste a password, token, OTP, recovery code, or `.npmrc` content into this repository or chat.
+Run ownership checks locally and complete browser/2FA prompts when npm requests
+them. Never paste a password, token, OTP, recovery code, or `.npmrc` content into
+this repository or chat.
 
 ```powershell
 npm login
 npm whoami
 npm ping
-```
-
-Then verify `draftforge-dev` appears in your npm account at **Profile → Organizations**.
-
-Check the approved package identity:
-
-```powershell
 npm view @draftforge-dev/draftforge name version
 ```
 
-For a new package, npm should return a not-found error. That is expected; the scope exists, but the package has not been published. Do not publish anything yet.
+## npm trusted publishing
 
-## Send this back to Codex
+Do not add an `NPM_TOKEN` GitHub secret. Stable publication uses short-lived
+OIDC credentials with provenance.
 
-- [ ] Exact scope confirmed: `@draftforge-dev`
-- [ ] Exact intended package name confirmed: `@draftforge-dev/draftforge`
-- [ ] Scope type confirmed: organization
-- [ ] npm 2FA enabled: yes / no
-- [ ] GitHub repository visibility: public / private
-
-The GitHub repository is currently `darkweb19/draftforge`. It must be public for npm provenance to be generated for a public package.
-
-Also confirm whether `GITHUB_TOKEN` can publish and link the GitHub Packages
-mirror for the selected namespace. npm scope ownership does not prove GitHub
-Packages authority. If cross-owner publication needs another credential, stop
-and approve a separately scoped credential rather than broadening permissions.
-
-## Trusted publishing — do this after P06-T04 adds the workflow
-
-Do not add an `NPM_TOKEN` GitHub secret. DraftForge will use npm trusted publishing with short-lived OIDC credentials.
-
-1. Wait until `.github/workflows/release.yml` exists on the default branch.
-2. Confirm the scoped package already exists on npm. Current npm rules require an existing package before a trusted publisher can be attached. The safe one-time package bootstrap must be agreed separately; do not improvise a publish from this checklist.
-3. Open the package on npmjs.com, then go to **Settings → Trusted Publisher**.
-4. Select **GitHub Actions** and enter:
+1. Open `@draftforge-dev/draftforge` on npmjs after the one-time bootstrap.
+2. Under **Settings -> Trusted Publisher**, select **GitHub Actions**.
+3. Enter:
    - Organization or user: `darkweb19`
    - Repository: `draftforge`
    - Workflow filename: `release.yml`
-   - Environment: leave blank unless the release workflow explicitly creates one
-   - Allowed action: select the action required by the final workflow; staged publishing is the safer option when supported by the completed release design
-5. Save the trusted publisher configuration. npm does not validate these values when saving, so check spelling and capitalization carefully.
-6. Under **Settings → Publishing access**, select **Require two-factor authentication and disallow tokens** after trusted publishing has been proven.
-7. Keep the repository public if provenance is required.
+   - Environment: use the exact environment named by the committed workflow,
+     if any
+4. Save and recheck spelling and capitalization.
+5. After trusted publishing succeeds, choose the strongest publishing-access
+   policy compatible with trusted publishing and keep the repository public for
+   provenance.
 
-Trusted publishing currently requires npm CLI 11.5.1+ and Node.js 22.14.0+ on a GitHub-hosted runner. The workflow must grant `id-token: write` and use a repository URL matching `https://github.com/darkweb19/draftforge`.
+The release workflow must grant the npmjs job `id-token: write`, use a supported
+Node/npm combination, and keep repository metadata pointed at
+`https://github.com/darkweb19/draftforge`.
+
+## GitHub Packages mirror
+
+No new GitHub organization is required. Do not create `draftforge-dev` on
+GitHub for this release. Do not create a PAT, `GH_PACKAGES_TOKEN`, or GitHub
+Packages bootstrap version.
+
+- [ ] Confirm repository `darkweb19/draftforge` is public.
+- [ ] In repository Actions settings, allow workflows the write access required
+  to publish packages.
+- [ ] Confirm `release.yml` publishes `@darkweb19/draftforge` with the built-in
+  `GITHUB_TOKEN` and job-level `packages: write`.
+- [ ] Expect the first stable workflow run may create the package as private and
+  stop before npmjs publication.
+- [ ] If private, open the package settings, change visibility to **Public**,
+  link `darkweb19/draftforge`, and confirm repository Actions access.
+- [ ] Rerun the same release workflow. It verifies the existing mirror version
+  and digest without overwriting it, then proceeds to npmjs and GitHub Release.
+
+The GitHub mirror does not need the npmjs bootstrap. The workflow creates the
+owner-scoped mirror directly and verifies its repository linkage after publish.
+
+## Before pushing `v0.1.0`
+
+- [ ] Canonical `draftforge-dev-draftforge-0.1.0.tgz` passes installed-binary
+  tests on Ubuntu, macOS, and Windows.
+- [ ] Mirror `darkweb19-draftforge-0.1.0.tgz` passes the same three-OS tests.
+- [ ] Release checks prove only manifest `name` and `publishConfig.registry`
+  differ and record both SHA-256 digests.
+- [ ] npm trusted publishing is configured and the protected environment, if
+  used, is ready.
+- [ ] Tag `v0.1.0` points to the exact tested commit.
+
+GitHub Release `v0.1.0` should contain only the canonical npmjs tarball and its
+checksum sidecar. The mirror has its own digest and remains on GitHub Packages.
 
 ## Official references
 
-- [npm: Creating an organization](https://docs.npmjs.com/creating-an-organization/)
 - [npm: About scopes](https://docs.npmjs.com/about-scopes/)
 - [npm: Creating scoped public packages](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages/)
 - [npm: Trusted publishing](https://docs.npmjs.com/trusted-publishers/)
-- [npm: `npm trust` requirements](https://docs.npmjs.com/cli/v11/commands/npm-trust/)
+- [GitHub Packages: npm registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry)
+- [GitHub Actions package permissions](https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages)

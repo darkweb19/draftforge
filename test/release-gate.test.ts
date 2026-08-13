@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -54,8 +54,22 @@ test("release identity fails closed on package, version, tag, tarball, and publi
   );
   assert.throws(
     () => validateReleaseIdentity({ ...fixture.packed, publishConfig: { access: "public", registry: "https://npm.pkg.github.com/" } }, fixture.source),
-    /npmjs must remain the canonical registry/u,
+    /Tarball registry/u,
   );
+
+  assert.doesNotThrow(() => validateReleaseIdentity({
+    ...fixture.packed,
+    name: "@darkweb19/draftforge",
+    publishConfig: { access: "public", registry: "https://npm.pkg.github.com/" },
+  }, fixture.source, {
+    identity: "github",
+    tag: "v0.1.0",
+    tarballName: "darkweb19-draftforge-0.1.0.tgz",
+  }));
+  assert.throws(() => validateReleaseIdentity(fixture.packed, fixture.source, {
+    identity: "github",
+    tarballName: "darkweb19-draftforge-0.1.0.tgz",
+  }), /release identity/u);
 });
 
 test("release shape rejects stale dist output and missing templates", () => {
@@ -103,6 +117,16 @@ test("installed gate exercises upgrade safety, idempotent resume, and a real Git
 async function packFixture(t: TestContext, name: string): Promise<string> {
   const destination = await mkdtemp(join(tmpdir(), `draftforge-release-${name}-`));
   t.after(async () => rm(destination, { recursive: true, force: true }));
+  const source = join(destination, "source");
+  const binary = join(source, "dist", "bin.js");
+  await mkdir(join(source, "dist"), { recursive: true });
+  await writeFile(
+    join(source, "package.json"),
+    await readFile(join(fixtureRoot, name, "package.json"), "utf8"),
+    "utf8",
+  );
+  await writeFile(binary, fixtureBinary(name), "utf8");
+  await chmod(binary, 0o755);
   const npmExecPath = process.env.npm_execpath ?? (
     process.platform === "win32"
       ? join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")
@@ -115,7 +139,7 @@ async function packFixture(t: TestContext, name: string): Promise<string> {
     "--json",
     "--pack-destination",
     destination,
-  ], resolve(fixtureRoot, name), {
+  ], source, {
     ...process.env,
     npm_config_cache: join(destination, "npm-cache"),
   });
@@ -129,6 +153,103 @@ async function packFixture(t: TestContext, name: string): Promise<string> {
   const bytes = await readFile(tarball);
   await writeFile(`${tarball}.sha256`, `${sha256(bytes)}  ${basename(tarball)}\n`, "utf8");
   return tarball;
+}
+
+function fixtureBinary(name: string): string {
+  if (name === "inert-binary") {
+    return [
+      "#!/usr/bin/env node",
+      "",
+      "// Deliberately inert: the release gate must reject a package whose npm shim",
+      "// exits successfully without reporting the package version.",
+      "",
+    ].join("\n");
+  }
+  assert.equal(name, "functional-binary");
+  return [
+    "#!/usr/bin/env node",
+    "",
+    'import { mkdirSync, readFileSync, writeFileSync } from "node:fs";',
+    'import { execFileSync } from "node:child_process";',
+    'import { join, resolve } from "node:path";',
+    "",
+    "const [command, ...args] = process.argv.slice(2);",
+    "",
+    'if (command === "--version") {',
+    '  process.stdout.write("0.1.0\\n");',
+    '} else if (command === "init") {',
+    "  const root = resolve(args[0]);",
+    '  const nameIndex = args.indexOf("--name");',
+    '  const projectName = nameIndex === -1 ? "Fixture" : args[nameIndex + 1];',
+    '  mkdirSync(join(root, ".draftforge", "schema"), { recursive: true });',
+    "  const state = {",
+    "    schemaVersion: 3,",
+    '    project: { name: projectName, draftFile: "idea.md" },',
+    '    workflow: { phaseId: "phase-00", phaseName: "Foundation", stage: "implementation", status: "in_progress", currentTask: null, nextTask: null },',
+    "    phases: [], tasks: [], decisions: [],",
+    '    handoff: { updatedAt: "2026-08-01T00:00:00.000Z", updatedBy: "fixture", summary: "Fixture", decisionsLocked: [], openQuestions: [], blockers: [], nextActions: [], gotchas: [] },',
+    "  };",
+    '  writeFileSync(join(root, ".draftforge", "state.json"), `${JSON.stringify(state, null, 2)}\\n`);',
+    '  writeFileSync(join(root, ".draftforge", "schema", "state.schema.json"), "fixture-current-schema\\n");',
+    '  writeFileSync(join(root, "SESSION.md"), "fixture session\\n");',
+    '} else if (command === "upgrade") {',
+    '  const statePath = join(process.cwd(), ".draftforge", "state.json");',
+    '  const schemaPath = join(process.cwd(), ".draftforge", "schema", "state.schema.json");',
+    '  const state = JSON.parse(readFileSync(statePath, "utf8"));',
+    '  const schema = readFileSync(schemaPath, "utf8");',
+    '  if (state.schemaVersion > 3 || schema === "user-modified schema\\n") {',
+    "    process.exitCode = 2;",
+    "  } else if (state.schemaVersion < 3) {",
+    '    writeFileSync(statePath, `${JSON.stringify({ ...state, schemaVersion: 3 }, null, 2)}\\n`);',
+    '    writeFileSync(schemaPath, "fixture-current-schema\\n");',
+    "  }",
+    '} else if (command === "resume") {',
+    '  const statePath = join(process.cwd(), ".draftforge", "state.json");',
+    '  const state = JSON.parse(readFileSync(statePath, "utf8"));',
+    '  const tasks = state.tasks.map((task) => task.status === "active" ? { ...task, status: "review" } : task);',
+    "  if (JSON.stringify(tasks) !== JSON.stringify(state.tasks)) {",
+    '    writeFileSync(statePath, `${JSON.stringify({ ...state, tasks }, null, 2)}\\n`);',
+    "  }",
+    '} else if (command === "review") {',
+    '  const statePath = join(process.cwd(), ".draftforge", "state.json");',
+    '  const state = JSON.parse(readFileSync(statePath, "utf8"));',
+    '  const integrated = state.tasks.filter((task) => task.status === "review").map((task) => task.id);',
+    '  for (const task of state.tasks.filter((candidate) => candidate.status === "review")) {',
+    "    const reference = task.attempt;",
+    '    const manifestPath = join(process.cwd(), ".draftforge", "runs", reference.runId, "attempts", `${reference.attemptId}.json`);',
+    '    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));',
+    '    const worktree = join(process.cwd(), ".draftforge", "runs", reference.runId, "worktrees", task.id);',
+    '    const rollbackCommit = git(process.cwd(), ["rev-parse", "HEAD"]);',
+    '    git(worktree, ["add", "--all"]);',
+    '    git(worktree, ["commit", "-m", `DraftForge: ${task.id}`]);',
+    '    const branchTip = git(worktree, ["rev-parse", "HEAD"]);',
+    '    git(process.cwd(), ["merge", "--no-ff", "--no-edit", branchTip]);',
+    '    const integrationCommit = git(process.cwd(), ["rev-parse", "HEAD"]);',
+    "    writeFileSync(manifestPath, `${JSON.stringify({",
+    "      ...manifest,",
+    '      lifecycle: "integrated",',
+    "      integration: {",
+    '        status: "integrated",',
+    '        projectBranch: "main",',
+    "        rollbackCommit,",
+    "        integrationCommit,",
+    "        integratedAt: new Date().toISOString(),",
+    "      },",
+    "    }, null, 2)}\\n`);",
+    "  }",
+    '  const tasks = state.tasks.map((task) => task.status === "review" ? { ...task, status: "done" } : task);',
+    '  writeFileSync(statePath, `${JSON.stringify({ ...state, tasks }, null, 2)}\\n`);',
+    '  process.stdout.write(`Integrated: ${integrated.join(", ")}\\n`);',
+    '} else if (!["doctor", "status", "handoff"].includes(command)) {',
+    '  process.stderr.write(`Unexpected fixture command: ${String(command)}\\n`);',
+    "  process.exitCode = 2;",
+    "}",
+    "",
+    "function git(cwd, args) {",
+    '  return execFileSync("git", args, { cwd, encoding: "utf8", windowsHide: true }).trim();',
+    "}",
+    "",
+  ].join("\n");
 }
 
 function run(command: string, args: readonly string[], cwd: string, env?: NodeJS.ProcessEnv): Promise<{

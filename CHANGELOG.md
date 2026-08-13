@@ -27,4 +27,8 @@ publication records.
 
 The canonical package identity is `@draftforge-dev/draftforge` on npmjs. The
 unscoped npm package `draftforge` belongs to an unrelated project. Release
-automation targets GitHub Packages as a mirror of the exact tested tarball.
+automation builds owner-scoped GitHub Packages mirror
+`@darkweb19/draftforge@0.1.0` from the same commit with only package-name and
+registry manifest deltas. Both expose the same `draftforge` binary and are
+installed-tested on all supported operating systems; their tarball digests are
+intentionally different.

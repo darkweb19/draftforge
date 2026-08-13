@@ -5,7 +5,7 @@ import { basename, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { auditTarball, expectedTarballEntries } from "./package-smoke.mjs";
-import { assertNpmProvenance } from "./release-gate.mjs";
+import { assertNpmProvenance, readTarball, RELEASE_IDENTITIES } from "./release-gate.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const EXPECTED_NAME = "@draftforge-dev/draftforge";
@@ -17,6 +17,8 @@ const TRUSTED_PUBLISHER_REPOSITORY = "darkweb19/draftforge";
 const TRUSTED_PUBLISHER_WORKFLOW = "release.yml";
 const TRUSTED_PUBLISHER_ENVIRONMENT = "npmjs";
 const NPMJS_BOOTSTRAP_VERSION = "0.1.0-bootstrap.0";
+const GITHUB_REPOSITORY = "darkweb19/draftforge";
+const GITHUB_REPOSITORY_OWNER = "darkweb19";
 
 function requireObject(value, label) {
   assert.ok(value !== null && typeof value === "object" && !Array.isArray(value), `${label} must be an object`);
@@ -42,8 +44,47 @@ export function validatePackageMetadata(value, label = "package.json") {
   return metadata;
 }
 
-export function expectedTarballFilename() {
-  return "draftforge-dev-draftforge-0.1.0.tgz";
+export function expectedTarballFilename(identity = "npmjs") {
+  const expected = RELEASE_IDENTITIES[identity];
+  assert.ok(expected !== undefined, `Unknown release identity: ${identity}`);
+  return `${expected.name.replace(/^@/u, "").replace("/", "-")}-${EXPECTED_VERSION}.tgz`;
+}
+
+export function validateGitHubMirrorMetadata(value, label = "GitHub mirror package.json") {
+  const metadata = requireObject(value, label);
+  assert.equal(metadata.name, RELEASE_IDENTITIES.github.name, `${label} must use the existing GitHub repository owner's scope`);
+  assert.equal(
+    requireObject(metadata.publishConfig, `${label} publishConfig`).registry,
+    RELEASE_IDENTITIES.github.registry,
+    `${label} must publish only to GitHub Packages`,
+  );
+  const canonicalized = structuredClone(metadata);
+  canonicalized.name = EXPECTED_NAME;
+  canonicalized.publishConfig.registry = NPMJS_REGISTRY;
+  validatePackageMetadata(canonicalized, label);
+  return metadata;
+}
+
+export function validateMirrorParity(canonicalBuffer, mirrorBuffer) {
+  const canonicalEntries = readTarball(canonicalBuffer);
+  const mirrorEntries = readTarball(mirrorBuffer);
+  assert.deepEqual([...mirrorEntries.keys()], [...canonicalEntries.keys()], "Mirror tarball file list must exactly match the canonical tarball");
+  for (const [path, canonicalEntry] of canonicalEntries) {
+    const mirrorEntry = mirrorEntries.get(path);
+    assert.ok(mirrorEntry !== undefined, `Mirror tarball is missing ${path}`);
+    assert.equal(mirrorEntry.mode, canonicalEntry.mode, `Mirror tarball mode differs for ${path}`);
+    if (path !== "package/package.json") {
+      assert.ok(mirrorEntry.data.equals(canonicalEntry.data), `Mirror tarball content differs for ${path}`);
+    }
+  }
+  const canonicalMetadata = JSON.parse(canonicalEntries.get("package/package.json").data.toString("utf8"));
+  const mirrorMetadata = JSON.parse(mirrorEntries.get("package/package.json").data.toString("utf8"));
+  validatePackageMetadata(canonicalMetadata, "canonical packed package.json");
+  validateGitHubMirrorMetadata(mirrorMetadata, "mirror packed package.json");
+  const normalizedMirror = structuredClone(mirrorMetadata);
+  normalizedMirror.name = EXPECTED_NAME;
+  normalizedMirror.publishConfig.registry = NPMJS_REGISTRY;
+  assert.deepEqual(normalizedMirror, canonicalMetadata, "Mirror package metadata may differ only by package name and registry");
 }
 
 export function validateChecksumSidecar(contents, digest, tarballName) {
@@ -74,9 +115,14 @@ export function validatePublicationConfiguration(value, label = "publication con
     `${label} must bind the npm trusted publisher to the ${TRUSTED_PUBLISHER_ENVIRONMENT} environment`,
   );
   assert.equal(
-    configuration.githubPackagesBootstrapVersion,
-    "0.1.0-bootstrap.0",
-    `${label} must name the approved prior GitHub Packages bootstrap version 0.1.0-bootstrap.0`,
+    configuration.githubRepository,
+    GITHUB_REPOSITORY,
+    `${label} must run in ${GITHUB_REPOSITORY}`,
+  );
+  assert.equal(
+    configuration.githubRepositoryOwner,
+    GITHUB_REPOSITORY_OWNER,
+    `${label} must use the existing ${GITHUB_REPOSITORY_OWNER} owner scope for GitHub Packages`,
   );
   return configuration;
 }
@@ -105,7 +151,9 @@ function parseArguments(arguments_) {
   let npmMetadata;
   let publicationConfig = false;
   let requireChecksumSidecar = false;
+  let identity = "npmjs";
   let sha256;
+  let sourceTarball;
   let tarball;
   let tag;
   for (let index = 0; index < arguments_.length; index += 1) {
@@ -124,6 +172,18 @@ function parseArguments(arguments_) {
     }
     if (argument === "--downloaded") {
       downloaded = true;
+      continue;
+    }
+    if (argument === "--identity") {
+      identity = arguments_[index + 1];
+      if (identity === undefined) throw new Error("--identity requires a value");
+      index += 1;
+      continue;
+    }
+    if (argument === "--source-tarball") {
+      sourceTarball = arguments_[index + 1];
+      if (sourceTarball === undefined) throw new Error("--source-tarball requires a value");
+      index += 1;
       continue;
     }
     if (argument === "--publication-config") {
@@ -147,14 +207,20 @@ function parseArguments(arguments_) {
       continue;
     }
     if (argument?.startsWith("--") === true || tarball !== undefined) {
-      throw new Error("Usage: node scripts/release-check.mjs <tarball-path> [--tag v0.1.0] [--sha256 digest] [--downloaded] [--publication-config] [--npm-metadata path] [--npm-bootstrap-metadata path] [--require-checksum-sidecar]");
+      throw new Error(usage());
     }
     tarball = argument;
   }
   if (tarball === undefined) {
-    throw new Error("Usage: node scripts/release-check.mjs <tarball-path> [--tag v0.1.0] [--sha256 digest] [--downloaded] [--publication-config] [--npm-metadata path] [--npm-bootstrap-metadata path] [--require-checksum-sidecar]");
+    throw new Error(usage());
   }
-  return { downloaded, npmBootstrapMetadata, npmMetadata, publicationConfig, requireChecksumSidecar, sha256, tarball, tag };
+  assert.ok(identity in RELEASE_IDENTITIES, `Unknown release identity: ${identity}`);
+  if (identity === "npmjs" && sourceTarball !== undefined) throw new Error("--source-tarball is valid only for the GitHub mirror");
+  return { downloaded, identity, npmBootstrapMetadata, npmMetadata, publicationConfig, requireChecksumSidecar, sha256, sourceTarball, tarball, tag };
+}
+
+function usage() {
+  return "Usage: node scripts/release-check.mjs <tarball-path> [--identity npmjs|github] [--source-tarball canonical.tgz] [--tag v0.1.0] [--sha256 digest] [--downloaded] [--publication-config] [--npm-metadata path] [--npm-bootstrap-metadata path] [--require-checksum-sidecar]";
 }
 
 function publicationConfigurationFromEnvironment() {
@@ -163,7 +229,8 @@ function publicationConfigurationFromEnvironment() {
     npmTrustedPublisherRepository: process.env.NPM_TRUSTED_PUBLISHER_REPOSITORY,
     npmTrustedPublisherWorkflow: process.env.NPM_TRUSTED_PUBLISHER_WORKFLOW,
     npmTrustedPublisherEnvironment: process.env.NPM_TRUSTED_PUBLISHER_ENVIRONMENT,
-    githubPackagesBootstrapVersion: process.env.GH_PACKAGES_BOOTSTRAP_VERSION,
+    githubRepository: process.env.GITHUB_REPOSITORY,
+    githubRepositoryOwner: process.env.GITHUB_REPOSITORY_OWNER,
   };
 }
 
@@ -217,7 +284,8 @@ async function writeGitHubOutputs(outputs) {
 
 export async function verifyReleaseArtifact(tarballArgument, options = {}) {
   const tarball = resolve(tarballArgument);
-  assert.equal(basename(tarball), expectedTarballFilename(), "Unexpected release tarball filename");
+  const identity = options.identity ?? "npmjs";
+  assert.equal(basename(tarball), expectedTarballFilename(identity), "Unexpected release tarball filename");
 
   const sourceMetadata = validatePackageMetadata(
     JSON.parse(await readFile(resolve(repositoryRoot, "package.json"), "utf8")),
@@ -231,11 +299,10 @@ export async function verifyReleaseArtifact(tarballArgument, options = {}) {
     auditTarball(compressed, tarball, await expectedTarballEntries(repositoryRoot));
   }
   const archive = gunzipSync(compressed);
-  const packedMetadata = validatePackageMetadata(
-    JSON.parse(readTarFile(archive, "package/package.json").toString("utf8")),
-    "packed package.json",
-  );
-  assert.equal(packedMetadata.name, sourceMetadata.name, "Packed package name does not match source metadata");
+  const packedValue = JSON.parse(readTarFile(archive, "package/package.json").toString("utf8"));
+  const packedMetadata = identity === "github"
+    ? validateGitHubMirrorMetadata(packedValue, "packed package.json")
+    : validatePackageMetadata(packedValue, "packed package.json");
   assert.equal(packedMetadata.version, sourceMetadata.version, "Packed package version does not match source metadata");
 
   const digest = createHash("sha256").update(compressed).digest("hex");
@@ -246,8 +313,14 @@ export async function verifyReleaseArtifact(tarballArgument, options = {}) {
   await recordChecksum(tarball, digest, options.requireChecksumSidecar === true);
   const relativeTarball = relative(repositoryRoot, tarball).replaceAll("\\", "/");
   assert.ok(relativeTarball.length > 0 && !relativeTarball.startsWith("../"), "Tarball must be inside the repository workspace");
+  let sourceDigest;
+  if (options.sourceTarball !== undefined) {
+    const source = await readFile(resolve(options.sourceTarball));
+    validateMirrorParity(source, compressed);
+    sourceDigest = createHash("sha256").update(source).digest("hex");
+  }
   const outputs = {
-    artifact_name: `draftforge-npm-${digest}`,
+    artifact_name: sourceDigest === undefined ? `draftforge-npm-${digest}` : `draftforge-release-${sourceDigest}-${digest}`,
     tarball: relativeTarball,
     sha256: digest,
   };
@@ -258,11 +331,13 @@ export async function verifyReleaseArtifact(tarballArgument, options = {}) {
 async function main() {
   const {
     downloaded,
+    identity,
     npmBootstrapMetadata,
     npmMetadata,
     publicationConfig,
     requireChecksumSidecar,
     sha256,
+    sourceTarball,
     tarball,
     tag,
   } = parseArguments(process.argv.slice(2));
@@ -273,7 +348,8 @@ async function main() {
   if (npmMetadata !== undefined) {
     validateNpmPublicationMetadata(JSON.parse(await readFile(resolve(npmMetadata), "utf8")));
   }
-  const options = { downloaded, requireChecksumSidecar };
+  const options = { downloaded, identity, requireChecksumSidecar };
+  if (sourceTarball !== undefined) options.sourceTarball = sourceTarball;
   if (tag !== undefined) options.tag = tag;
   if (sha256 !== undefined) options.sha256 = sha256;
   const outputs = await verifyReleaseArtifact(tarball, options);

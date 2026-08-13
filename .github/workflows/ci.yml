@@ -12,9 +12,11 @@ jobs:
     name: Check and package (Ubuntu, Node 22)
     runs-on: ubuntu-latest
     outputs:
-      artifact_name: ${{ steps.release-check.outputs.artifact_name }}
-      tarball: ${{ steps.release-check.outputs.tarball }}
-      sha256: ${{ steps.release-check.outputs.sha256 }}
+      artifact_name: ${{ steps.mirror-check.outputs.artifact_name }}
+      canonical_tarball: ${{ steps.canonical-check.outputs.tarball }}
+      canonical_sha256: ${{ steps.canonical-check.outputs.sha256 }}
+      mirror_tarball: ${{ steps.mirror-check.outputs.tarball }}
+      mirror_sha256: ${{ steps.mirror-check.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -22,28 +24,42 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+      - run: npm install --global npm@11.16.0
       - run: npm ci
       - run: npm run build
-      - name: Pack the checked build without rebuilding
+      - name: Pack the canonical npmjs artifact and owner-scoped GitHub mirror
         shell: bash
         run: |
-          mkdir release-artifact
+          mkdir release-artifact mirror-source
           npm pack --ignore-scripts --pack-destination release-artifact
-      - name: Audit and checksum the release artifact
-        id: release-check
+          cp -R dist templates README.md LICENSE package.json mirror-source/
+          npm pkg set --prefix mirror-source \
+            'name=@darkweb19/draftforge' \
+            'publishConfig.registry=https://npm.pkg.github.com/'
+          npm pack ./mirror-source --ignore-scripts --pack-destination release-artifact
+      - name: Audit and checksum the canonical artifact
+        id: canonical-check
         run: node scripts/release-check.mjs release-artifact/draftforge-dev-draftforge-0.1.0.tgz
+      - name: Audit the mirror difference and checksum the mirror artifact
+        id: mirror-check
+        run: >-
+          node scripts/release-check.mjs release-artifact/darkweb19-draftforge-0.1.0.tgz
+          --identity github
+          --source-tarball release-artifact/draftforge-dev-draftforge-0.1.0.tgz
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.release-check.outputs.artifact_name }}
+          name: ${{ steps.mirror-check.outputs.artifact_name }}
           path: |
-            ${{ steps.release-check.outputs.tarball }}
-            ${{ steps.release-check.outputs.tarball }}.sha256
+            ${{ steps.canonical-check.outputs.tarball }}
+            ${{ steps.canonical-check.outputs.tarball }}.sha256
+            ${{ steps.mirror-check.outputs.tarball }}
+            ${{ steps.mirror-check.outputs.tarball }}.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
 
   artifact-smoke:
-    name: Installed artifact smoke (${{ matrix.os }}, Node 22)
+    name: Installed artifacts smoke (${{ matrix.os }}, Node 22)
     needs: package
     runs-on: ${{ matrix.os }}
     strategy:
@@ -57,13 +73,20 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+      - run: npm install --global npm@11.16.0
       - run: npm ci
       - run: npm run check
       - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.package.outputs.artifact_name }}
           path: release-artifact
-      - name: Verify the downloaded artifact identity and checksum
-        run: node scripts/release-check.mjs "${{ needs.package.outputs.tarball }}" --sha256 "${{ needs.package.outputs.sha256 }}"
-      - name: Run the full release gate against the exact installed artifact
-        run: node scripts/release-gate.mjs "${{ needs.package.outputs.tarball }}" --checksum "${{ needs.package.outputs.tarball }}.sha256"
+      - name: Verify both downloaded artifacts and their expected digests
+        shell: bash
+        run: |
+          node scripts/release-check.mjs "${{ needs.package.outputs.canonical_tarball }}" --sha256 "${{ needs.package.outputs.canonical_sha256 }}"
+          node scripts/release-check.mjs "${{ needs.package.outputs.mirror_tarball }}" --identity github --source-tarball "${{ needs.package.outputs.canonical_tarball }}" --sha256 "${{ needs.package.outputs.mirror_sha256 }}"
+      - name: Test both npm-installed CLIs
+        shell: bash
+        run: |
+          node scripts/release-gate.mjs "${{ needs.package.outputs.canonical_tarball }}" --checksum "${{ needs.package.outputs.canonical_tarball }}.sha256"
+          node scripts/release-gate.mjs "${{ needs.package.outputs.mirror_tarball }}" --identity github --checksum "${{ needs.package.outputs.mirror_tarball }}.sha256"

@@ -4,7 +4,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 // The release-check executable stays plain JavaScript for direct CI use.
 // @ts-expect-error JavaScript executable intentionally has no declaration file.
-import { expectedTarballFilename, validateChecksumSidecar, validateNpmBootstrapMetadata, validateNpmPublicationMetadata, validatePackageMetadata, validatePublicationConfiguration } from "../scripts/release-check.mjs";
+import { expectedTarballFilename, validateChecksumSidecar, validateGitHubMirrorMetadata, validateNpmBootstrapMetadata, validateNpmPublicationMetadata, validatePackageMetadata, validatePublicationConfiguration } from "../scripts/release-check.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -33,10 +33,41 @@ function assertOfficialActionMajors(workflow: string): void {
   assert.doesNotMatch(workflow, /@(main|master|latest)\b/u);
 }
 
+function assertPinnedNpmAfterSetupNode(workflow: string): void {
+  const setupMatches = [...workflow.matchAll(/uses: actions\/setup-node@v7/gu)];
+  const pinMatches = [...workflow.matchAll(/run: npm install --global npm@11\.16\.0/gu)];
+  assert.equal(pinMatches.length, setupMatches.length, "every Node.js job must install packageManager npm@11.16.0");
+  for (const [index, setup] of setupMatches.entries()) {
+    const section = workflow.slice(setup.index, setupMatches[index + 1]?.index ?? workflow.length);
+    assert.match(section, /run: npm install --global npm@11\.16\.0/u);
+    const pinIndex = section.indexOf("run: npm install --global npm@11.16.0");
+    const firstConsumer = [section.indexOf("run: npm ci"), section.indexOf("uses: actions/download-artifact@v8")]
+      .filter((position) => position >= 0)
+      .sort((left, right) => left - right)[0];
+    if (firstConsumer !== undefined) assert.ok(pinIndex < firstConsumer, "npm must be pinned before install or artifact gates");
+  }
+}
+
 test("package metadata is the approved public npmjs identity", async () => {
   const metadata: unknown = JSON.parse(await fixture("package.json"));
   validatePackageMetadata(metadata);
-  assert.equal(expectedTarballFilename(), "draftforge-dev-draftforge-0.1.0.tgz");
+  assert.equal(expectedTarballFilename("npmjs"), "draftforge-dev-draftforge-0.1.0.tgz");
+  assert.equal(expectedTarballFilename("github"), "darkweb19-draftforge-0.1.0.tgz");
+});
+
+test("GitHub mirror metadata changes only the owner scope and registry", () => {
+  const mirror = {
+    name: "@darkweb19/draftforge",
+    version: "0.1.0",
+    license: "MIT",
+    repository: { type: "git", url: "git+https://github.com/darkweb19/draftforge.git" },
+    bugs: { url: "https://github.com/darkweb19/draftforge/issues" },
+    engines: { node: ">=22" },
+    publishConfig: { access: "public", registry: "https://npm.pkg.github.com/" },
+  };
+  assert.doesNotThrow(() => validateGitHubMirrorMetadata(mirror));
+  assert.throws(() => validateGitHubMirrorMetadata({ ...mirror, name: "@draftforge-dev/draftforge" }), /owner's scope/u);
+  assert.throws(() => validateGitHubMirrorMetadata({ ...mirror, publishConfig: { ...mirror.publishConfig, registry: "https://registry.npmjs.org/" } }), /GitHub Packages/u);
 });
 
 test("release metadata checks reject identity, version, and registry drift", () => {
@@ -65,7 +96,8 @@ test("publication configuration rejects missing trusted-publisher provenance", (
     npmTrustedPublisherRepository: "darkweb19/draftforge",
     npmTrustedPublisherWorkflow: "release.yml",
     npmTrustedPublisherEnvironment: "npmjs",
-    githubPackagesBootstrapVersion: "0.1.0-bootstrap.0",
+    githubRepository: "darkweb19/draftforge",
+    githubRepositoryOwner: "darkweb19",
   };
   assert.doesNotThrow(() => validatePublicationConfiguration(valid));
   assert.throws(
@@ -77,8 +109,8 @@ test("publication configuration rejects missing trusted-publisher provenance", (
     /bind the npm trusted publisher/u,
   );
   assert.throws(
-    () => validatePublicationConfiguration({ ...valid, githubPackagesBootstrapVersion: "0.1.0-bootstrap.1" }),
-    /approved prior GitHub Packages bootstrap version 0\.1\.0-bootstrap\.0/u,
+    () => validatePublicationConfiguration({ ...valid, githubRepositoryOwner: "draftforge-dev" }),
+    /existing darkweb19 owner scope/u,
   );
 });
 
@@ -128,16 +160,18 @@ test("CI runs the full gate on one checksum-addressed tarball on every supported
   assert.doesNotMatch(workflow, /workflow_dispatch|id-token:\s*write|packages:\s*write|contents:\s*write/u);
   assert.doesNotMatch(workflow, /npm publish|gh release create|secrets\./u);
   assertOfficialActionMajors(workflow);
+  assertPinnedNpmAfterSetupNode(workflow);
 
   const packageJob = job(workflow, "package");
   assert.match(packageJob, /runs-on: ubuntu-latest/u);
   assert.match(packageJob, /node-version: 22/u);
   assert.match(packageJob, /npm ci[\s\S]*npm run build/u);
-  assert.match(packageJob, /mkdir release-artifact[\s\S]*npm pack --ignore-scripts --pack-destination release-artifact/u);
+  assert.match(packageJob, /npm pack --ignore-scripts --pack-destination release-artifact[\s\S]*name=@darkweb19\/draftforge[\s\S]*npm\.pkg\.github\.com[\s\S]*npm pack \.\/mirror-source/u);
   assert.match(packageJob, /node scripts\/release-check\.mjs/u);
   assert.match(packageJob, /actions\/upload-artifact@v7/u);
-  assert.match(packageJob, /artifact_name: \$\{\{ steps\.release-check\.outputs\.artifact_name \}\}/u);
-  assert.match(packageJob, /sha256: \$\{\{ steps\.release-check\.outputs\.sha256 \}\}/u);
+  assert.match(packageJob, /canonical_sha256: \$\{\{ steps\.canonical-check\.outputs\.sha256 \}\}/u);
+  assert.match(packageJob, /mirror_sha256: \$\{\{ steps\.mirror-check\.outputs\.sha256 \}\}/u);
+  assert.match(packageJob, /--identity github[\s\S]*--source-tarball/u);
 
   const gate = job(workflow, "artifact-smoke");
   assert.match(gate, /needs: package/u);
@@ -145,13 +179,14 @@ test("CI runs the full gate on one checksum-addressed tarball on every supported
   assert.match(gate, /actions\/download-artifact@v8/u);
   assert.match(gate, /needs\.package\.outputs\.artifact_name/u);
   assert.match(gate, /npm ci[\s\S]*npm run check/u);
-  assert.match(gate, /release-check\.mjs[\s\S]*release-gate\.mjs/u);
-  assert.match(gate, /release-gate\.mjs[\s\S]*--checksum/u);
-  assert.match(gate, /--sha256 "\$\{\{ needs\.package\.outputs\.sha256 \}\}"/u);
+  assert.equal((gate.match(/release-check\.mjs/gu) ?? []).length, 2);
+  assert.equal((gate.match(/release-gate\.mjs/gu) ?? []).length, 2);
+  assert.match(gate, /mirror_sha256/u);
+  assert.match(gate, /release-gate\.mjs[\s\S]*--identity github[\s\S]*--checksum/u);
   assert.doesNotMatch(gate, /npm pack/u);
 
   assert.doesNotMatch(workflow, /actions\/cache|node_modules|\bdist\/|\.draftforge\/runs|\.env/u);
-  assert.equal((workflow.match(/npm pack --ignore-scripts/gu) ?? []).length, 1, "CI must pack exactly once");
+  assert.equal((workflow.match(/npm pack/gu) ?? []).length, 2, "CI must pack exactly the canonical and mirror artifacts");
 });
 
 test("release preflights authority, resumes safely, and verifies every public artifact", async () => {
@@ -159,29 +194,27 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.match(workflow, /^on:\n  push:\n    tags:\n      - "v\*"$/mu);
   assert.doesNotMatch(workflow, /pull_request|workflow_dispatch|branches:/u);
   assertOfficialActionMajors(workflow);
+  assertPinnedNpmAfterSetupNode(workflow);
 
   const packageJob = job(workflow, "package");
   assert.match(packageJob, /git rev-parse HEAD/u);
   assert.match(packageJob, /git status --porcelain --untracked-files=all/u);
-  assert.match(packageJob, /npm ci[\s\S]*npm run build[\s\S]*mkdir release-artifact[\s\S]*npm pack --ignore-scripts/u);
+  assert.match(packageJob, /npm ci[\s\S]*npm run build[\s\S]*npm pack --ignore-scripts[\s\S]*name=@darkweb19\/draftforge[\s\S]*npm pack \.\/mirror-source/u);
   assert.match(packageJob, /release-check\.mjs[\s\S]*--tag/u);
+  assert.match(packageJob, /--identity github[\s\S]*--source-tarball/u);
 
   const gate = job(workflow, "artifact-smoke");
   assert.match(gate, /os: \[ubuntu-latest, macos-latest, windows-latest\]/u);
   assert.match(gate, /npm ci[\s\S]*npm run check/u);
-  assert.match(gate, /release-gate\.mjs[\s\S]*--checksum[\s\S]*--tag/u);
+  assert.equal((gate.match(/release-gate\.mjs/gu) ?? []).length, 2);
+  assert.match(gate, /--identity github[\s\S]*--checksum/u);
 
   const authority = job(workflow, "publication-authority");
   assert.match(authority, /needs: \[package, artifact-smoke\]/u);
-  assert.match(authority, /permissions: \{\}/u);
+  assert.match(authority, /contents: read/u);
   assert.match(authority, /NPM_TRUSTED_PUBLISHER_CONFIGURED: \$\{\{ vars\.NPM_TRUSTED_PUBLISHER_CONFIGURED \}\}/u);
   assert.match(authority, /--publication-config/u);
-  assert.match(authority, /GH_PACKAGES_BOOTSTRAP_VERSION/u);
-  assert.match(authority, /PAT \(classic\)/u);
-  assert.match(authority, /gh api \/orgs\/draftforge-dev/u);
-  assert.match(authority, /gh api \/repos\/darkweb19\/draftforge/u);
-  assert.match(authority, /\.visibility/u);
-  assert.match(authority, /\.repository\.full_name/u);
+  assert.doesNotMatch(authority, /GH_PACKAGES|PAT|\/orgs\/draftforge-dev/u);
   assert.match(authority, /npm ping --registry https:\/\/registry\.npmjs\.org\//u);
   assert.match(authority, /@draftforge-dev\/draftforge@0\.1\.0-bootstrap\.0/u);
   assert.match(authority, /npm view[\s\S]*registry\.npmjs\.org[\s\S]*--json/u);
@@ -191,10 +224,16 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.match(githubPackages, /needs: \[package, publication-authority\]/u);
   assert.match(githubPackages, /packages: write/u);
   assert.doesNotMatch(githubPackages, /id-token: write|contents: write/u);
-  assert.match(githubPackages, /scope: "@draftforge-dev"/u);
-  assert.match(githubPackages, /NODE_AUTH_TOKEN: \$\{\{ secrets\.GH_PACKAGES_TOKEN \}\}/u);
+  assert.match(githubPackages, /scope: "@darkweb19"/u);
+  assert.match(githubPackages, /NODE_AUTH_TOKEN: \$\{\{ github\.token \}\}/u);
+  assert.match(githubPackages, /@darkweb19\/draftforge/u);
+  assert.match(githubPackages, /darkweb19-draftforge-0\.1\.0\.tgz/u);
   assert.match(githubPackages, /npm view[\s\S]*view_status[\s\S]*E404[\s\S]*refusing to publish[\s\S]*npm publish/u);
   assert.match(githubPackages, /curl[\s\S]*release-check\.mjs[\s\S]*--sha256/u);
+  assert.match(githubPackages, /\/users\/darkweb19\/packages\/npm\/draftforge/u);
+  assert.match(githubPackages, /first GitHub Packages publication is private by default/u);
+  assert.match(githubPackages, /make @darkweb19\/draftforge public[\s\S]*rerun/u);
+  assert.match(githubPackages, /\.repository\.full_name[\s\S]*darkweb19\/draftforge/u);
 
   const npmjs = job(workflow, "publish-npmjs");
   assert.match(npmjs, /needs: \[package, publish-github-packages\]/u);
@@ -214,12 +253,12 @@ test("release preflights authority, resumes safely, and verifies every public ar
 
   const registryGate = job(workflow, "verify-registries");
   assert.match(registryGate, /needs: \[package, publish-github-packages, publish-npmjs\]/u);
-  assert.match(registryGate, /permissions: \{\}/u);
+  assert.match(registryGate, /packages: read/u);
   assert.match(registryGate, /registry\.npmjs\.org/u);
   assert.match(registryGate, /npm\.pkg\.github\.com/u);
   assert.match(registryGate, /registry-url: https:\/\/npm\.pkg\.github\.com\//u);
-  assert.match(registryGate, /scope: "@draftforge-dev"/u);
-  assert.match(registryGate, /NODE_AUTH_TOKEN: \$\{\{ secrets\.GH_PACKAGES_TOKEN \}\}/u);
+  assert.match(registryGate, /scope: "@darkweb19"/u);
+  assert.match(registryGate, /NODE_AUTH_TOKEN: \$\{\{ github\.token \}\}/u);
   assert.equal((registryGate.match(/release-check\.mjs/gu) ?? []).length, 2);
   assert.equal((registryGate.match(/--sha256/gu) ?? []).length, 2);
   assert.match(registryGate, /npm view[\s\S]*--json[\s\S]*--npm-metadata/u);
@@ -243,11 +282,7 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.doesNotMatch(releaseAssets, /\.tgz\*/u);
   assert.match(releaseAssets, /release-check\.mjs[\s\S]*--sha256[\s\S]*--require-checksum-sidecar/u);
 
-  assert.equal((workflow.match(/npm pack --ignore-scripts/gu) ?? []).length, 1, "release must pack exactly once");
+  assert.equal((workflow.match(/npm pack/gu) ?? []).length, 2, "release must pack exactly the canonical and mirror artifacts");
   assert.doesNotMatch(workflow, /NPM_TOKEN|_authToken|npm_[A-Za-z0-9]{20,}/u);
-  assert.deepEqual(
-    [...new Set([...workflow.matchAll(/secrets\.([A-Z0-9_]+)/gu)].map((match) => match[1]))],
-    ["GH_PACKAGES_TOKEN"],
-    "the approved PAT (classic) must be the only repository secret",
-  );
+  assert.deepEqual([...workflow.matchAll(/secrets\.([A-Z0-9_]+)/gu)], [], "release must not use a PAT or registry secret");
 });

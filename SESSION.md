@@ -4,7 +4,7 @@
 
 ## What was done
 
-- Phase 6 (Release) remains in progress. P06-T03 is done after the Windows portability repairs and a green repository-wide check (494 passed, 10 capability/auth skips, zero failures). The approved public identity is @draftforge-dev/draftforge@0.1.0. P06-T04 is active: release metadata, three-OS Node 22 CI, tag-gated npmjs provenance publication, the GitHub Packages mirror path, GitHub Release assets, and the content-addressed local release gate are implemented and independently reviewed, but external acceptance still requires the committed workflow and real Ubuntu, macOS, and Windows evidence. P06-T05 remains backlog; its local gate files are an integration draft and cannot be accepted before P06-T04. Publication is blocked because the GitHub API does not currently resolve a draftforge-dev organization, and both registries require separately approved bootstrap publications before the stable tag.
+- Phase 6 (Release) remains in progress. P06-T03 is done and the current full repository check passes (498 passed, 10 intentional skips, zero failures). Draft PR #6 contains the reviewed 0.1.0 release pipeline. P06-T04 is active: npmjs remains canonical @draftforge-dev/draftforge@0.1.0, while ADR 0012 replaces the unavailable cross-owner GitHub namespace with owner-scoped mirror @darkweb19/draftforge@0.1.0. Both tarballs come from one source commit, differ only in package name and publish registry, carry separate digests, and are installed-tested on Node 22 across Ubuntu, macOS, and Windows. The first pushed CI run exposed an installed-fixture shim failure; the local revision pins npm 11.16.0 and invokes the validated installed target portably, but external acceptance still requires a green rerun. P06-T05 remains backlog. Stable publication still requires the npmjs bootstrap and trusted-publisher setup; the first GitHub Packages publish may require a manual Public/link action followed by an idempotent workflow rerun.
 - Current position: phase-06 — Release; stage implementation; status in_progress.
 - Current task: P06-T04. Next task: None.
 - Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01, P03-T02, P03-T03, P03-T04, P04-T01, P04-T02, P04-T03, P04-T04, P05-T01, P05-T02, P05-T03, P05-T04, P05-T05, P06-T01, P06-T02, P06-T03.
@@ -53,12 +53,13 @@
 - Persist a reviewer lease and integration intent before their external side effects so crash recovery neither calls a reviewer twice nor merges accepted work twice.
 - Treat ignored untracked trees as untrusted input: enumerate incrementally with hard entry, file, depth, and byte caps, and bind every traversal step to canonical path plus device/inode identity before content enters secret scanning or reviewer context.
 - Freeze a reviewer block verdict over passing machine evidence as terminal unknown for the initial release; it expresses inability to decide, not an actionable review rejection.
-- Treat one exact npm tarball as the release artifact and test it through the package manager's installed binary on Ubuntu, macOS, and Windows, including Node.js 22.
+- Build canonical npmjs and owner-scoped GitHub Packages tarballs from one tagged source commit, constrain their difference to package name and publish registry, and test both through the package manager's installed binary on Ubuntu, macOS, and Windows with Node.js 22.
 - Use package.json as the sole version authority; runtime output, tag, tarball metadata, and published version must agree.
 - Persist schema migrations only through an explicit locked upgrade that validates first, creates a recoverable backup, refreshes only recognized DraftForge-owned schemas, and preserves user-authored files.
 - Publish the CLI as public @draftforge-dev/draftforge; npmjs is the canonical registry and the unscoped draftforge name remains unrelated.
 - Publish only a tag-matched, already-tested tarball through npm trusted publishing with provenance and least-privilege OIDC; do not store a long-lived npm token.
-- Mirror the identical tested tarball to a public repository-linked GitHub npm package and attach it plus its checksum to GitHub Release v0.1.0; registry and release downloads must match the candidate SHA-256.
+- Publish the owner-scoped GitHub Packages mirror as @darkweb19/draftforge from the same tagged source commit; only package name and publish registry may differ from canonical @draftforge-dev/draftforge, and each tarball has its own verified SHA-256 digest.
+- Attach only the canonical npmjs tarball plus its checksum to GitHub Release v0.1.0; verify the mirror independently and use the repository GITHUB_TOKEN rather than a PAT or new GitHub organization.
 - Keep npmjs, GitHub Packages, and GitHub Release jobs separate and safely rerunnable because cross-registry publication is not atomic.
 - Decompose Phase 6 into the portable package foundation (P06-T01), three independent tracks for upgrades, documentation, and CI/provenance (P06-T02 through P06-T04), then the joined clean-machine gate (P06-T05).
 - During explicit upgrades, write recognized schemas first, SESSION.md second, and canonical state last so schemaVersion is the durable commit marker and a retry re-plans any incomplete upgrade.
@@ -66,20 +67,20 @@
 
 ## Open questions
 
-1. The authenticated GitHub API returns 404 for draftforge-dev. Does the user still need to create the matching GitHub organization, or was it created under a different exact name?
+None
 
 ## Next steps
 
-1. Commit the reviewed release implementation, push a review branch, and require the real Ubuntu/macOS/Windows Node 22 CI matrix before moving P06-T04 to done.
-2. Create the exact GitHub organization draftforge-dev if it is still absent, then explicitly approve and perform the tested 0.1.0-bootstrap.0 publications described in docs/RELEASE.md.
-3. Configure npm trusted publishing, the protected npmjs GitHub environment, the release attestation variables, and the least-privilege GH_PACKAGES_TOKEN before approving stable tag v0.1.0.
-4. After both bootstrap prerequisites and the green matrix exist, run the tag workflow, verify all three public surfaces and digests, then close P06-T04/P06-T05 and Phase 6.
+1. Commit and push the reviewed owner-scoped revision to draft PR #6, then require a green Ubuntu/macOS/Windows Node 22 CI matrix for both tarballs before moving P06-T04 to done.
+2. Build and test the exact npmjs 0.1.0-bootstrap.0 tarball, publish it under a non-latest bootstrap tag with the user's npm 2FA approval, and configure npm trusted publishing for darkweb19/draftforge, release.yml, and environment npmjs.
+3. Configure the npm trusted-publisher repository variables and protected npmjs environment; GitHub Packages uses only the built-in GITHUB_TOKEN and needs no PAT, secret, bootstrap, or new organization.
+4. After the green matrix and npmjs bootstrap exist, merge the PR, tag v0.1.0, handle the expected first GitHub Packages visibility/link checkpoint if it occurs, rerun idempotently, and verify npmjs, GitHub Packages, and GitHub Release.
 5. Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli when an authenticated local harness is available.
 
 ## Gotchas
 
-- P06-T04 cannot pass its external acceptance gate until these changes are committed and the real Node 22 Ubuntu, macOS, and Windows GitHub Actions jobs accept one exact tarball.
-- Stable publication is blocked until the GitHub organization draftforge-dev exists, a separately approved 0.1.0-bootstrap.0 is published to both registries, the GitHub package is public and linked to darkweb19/draftforge, npm trusted publishing is configured for release.yml and environment npmjs, and the required repository variables plus GH_PACKAGES_TOKEN are configured.
+- P06-T04 cannot pass its external acceptance gate until the owner-scoped revision is committed, pushed to draft PR #6, and the real Node 22 Ubuntu, macOS, and Windows GitHub Actions jobs accept both package identities.
+- Stable npmjs publication is blocked until 0.1.0-bootstrap.0 exists under @draftforge-dev/draftforge and npm trusted publishing is configured for darkweb19/draftforge, release.yml, and environment npmjs. The first @darkweb19/draftforge GitHub Packages publish may remain private or unlinked; make it Public and link it to darkweb19/draftforge, then rerun the same tag workflow.
 - `withProjectLock` now waits rather than refusing: one deadline is computed at entry (DEFAULT_LOCK_WAIT_TIMEOUT_MS 30s, DEFAULT_LOCK_POLL_INTERVAL_MS 25ms, both overridable per call) and every transient condition retries via the internal RetryableLockContention signal. Stale locks are still broken immediately. If you add a new refusal path in lock.ts, make it retryable unless it is genuinely unrecoverable - a hard throw there silently reintroduces the contention refusal.
 - Two concurrent `draftforge run` processes now wait for each other instead of one failing. That is a deliberate behavior change from Phase 4 and P05-T05 must document it in the CLI docs.
 - The worker seam accepts exactly two entry shapes: `claimed` with `baseCommit: null`, or `running` with a non-null base commit that must equal the recovered workspace's. Any other lifecycle, or a resumed base-commit mismatch, is a hard error before side effects - do not soften the mismatch into an overwrite.
@@ -118,7 +119,7 @@
 - Ignored untracked directories are secret-scanned recursively but fail closed above depth 32, 1,024 entries, 1,024 files, 1 MiB per file, or 8 MiB aggregate. Incremental enumeration and ancestor/file identity checks prevent resource exhaustion and symlink-swap substitution.
 - The current packed CLI is inert through the npm-installed .bin symlink: the entry guard compares the symlink URL with the resolved module URL. P06-T01 must test the real installed binary, not direct dist execution.
 - The public unscoped draftforge package is an unrelated React package at version 0.4.0. Never publish or configure automation against that name; verify an owned scope first.
-- npm whoami succeeds as sujansthadev and the owned npm organization is @draftforge-dev. The same-named GitHub organization is a separate prerequisite and currently returns 404 from the authenticated GitHub API.
+- npm whoami succeeds as sujansthadev and the owned npm organization is @draftforge-dev. No matching GitHub organization will be created: GitHub Packages uses existing owner scope @darkweb19 and the repository GITHUB_TOKEN.
 - The current local runtime is newer than the supported floor. Platform simulation is not release evidence; Phase 6 needs real Node.js 22 jobs on Ubuntu, macOS, and Windows.
 - Ordinary state reads currently migrate v1/v2 in memory without persisting. Preserve read-only status/doctor behavior and make P06-T02 the only deliberate persistence path.
 - Package smoke intentionally compares an explicit tarball against the current clean dist/templates file set. CI must build before smoke and must not substitute or rebuild the supplied artifact between audit and installation.
@@ -131,4 +132,4 @@
 - The two privileged-symlink upgrade tests skip only when the host cannot create links; capable GitHub runners still exercise them. The ignored-parent race test uses a Windows junction so its security assertion remains active locally.
 - The provenance URL in test/fixtures/release/gate/failures.json is intentionally synthetic fixture data, not evidence of a live npm publication.
 
-Last updated: 2026-08-13T10:03:00.000-04:00 by codex
+Last updated: 2026-08-13T11:10:00.000-04:00 by codex

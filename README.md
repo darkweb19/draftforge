@@ -38,9 +38,12 @@ that exact artifact in a clean temporary project and exercises the npm-generated
 binary without a provider or network call. Remove the globally installed package
 with `npm uninstall --global @draftforge-dev/draftforge`.
 
-Release automation targets GitHub Packages as a repository-linked mirror of the
-same tested tarball; it is not the default install source and requires explicit
-GitHub registry configuration.
+Release automation also publishes owner-scoped mirror
+`@darkweb19/draftforge@0.1.0` to GitHub Packages from the same source commit.
+Both packages expose the same `draftforge` binary. Their tarballs have separate
+digests because the mirror has a different manifest name and publish registry.
+Users should install the canonical npmjs package above; the mirror is not the
+default install source.
 
 See [Installation](https://github.com/darkweb19/draftforge/blob/main/docs/INSTALLATION.md)
 for registry status, initialization, upgrades, and uninstall details.
@@ -275,10 +278,13 @@ provider calls.
 
 ## Release records
 
-`package.json` is the version authority. The npm package and GitHub release
-records show which versions are currently published. Each release is built and
-tested as one exact tarball across Ubuntu, macOS, and Windows before registry
-publication; a local smoke result alone is not release evidence.
+`package.json` is the version authority. Canonical npmjs package
+`@draftforge-dev/draftforge` and GitHub Packages mirror
+`@darkweb19/draftforge` are built from one commit with only the mirror manifest
+name and registry changed. Each tarball has its own digest and both are
+installed-tested across Ubuntu, macOS, and Windows. GitHub Release carries the
+canonical npmjs tarball and checksum; a local smoke result alone is not release
+evidence.
 
 ## Security boundaries
 
@@ -313,6 +319,7 @@ boundaries.
 - [Security policy](https://github.com/darkweb19/draftforge/blob/main/SECURITY.md)
 - [Changelog](https://github.com/darkweb19/draftforge/blob/main/CHANGELOG.md)
 - [Release artifact and upgrade ADR](https://github.com/darkweb19/draftforge/blob/main/docs/decisions/0011-release-artifact-upgrades-and-provenance.md)
+- [Owner-scoped GitHub Packages ADR](https://github.com/darkweb19/draftforge/blob/main/docs/decisions/0012-owner-scoped-github-packages-mirror.md)
 - [Example idea](https://github.com/darkweb19/draftforge/blob/main/examples/local-notes/idea.md)
 - [Delivery phases](https://github.com/darkweb19/draftforge/blob/main/PHASES.md)
 - [Generated session handoff](https://github.com/darkweb19/draftforge/blob/main/SESSION.md)

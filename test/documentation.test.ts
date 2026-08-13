@@ -9,7 +9,9 @@ import { readProjectState } from "../src/state/files.js";
 const DOCS = [
   "README.md", "SECURITY.md", "CHANGELOG.md", "docs/INSTALLATION.md",
   "docs/PROVIDERS.md", "docs/UPGRADING.md", "docs/TROUBLESHOOTING.md",
-  "docs/EXAMPLE.md",
+  "docs/EXAMPLE.md", "docs/RELEASE.md",
+  "docs/decisions/0011-release-artifact-upgrades-and-provenance.md",
+  "docs/decisions/0012-owner-scoped-github-packages-mirror.md",
 ] as const;
 
 const RELEASE_NAME = "@draftforge-dev/draftforge";
@@ -107,6 +109,27 @@ test("release identity and installation commands stay canonical", async () => {
     lifecycleNeutralDocs.join("\n"),
     /not (?:a )?published release|has not been published|not available from the registry|evidence (?:is )?still (?:in progress|pending)|final three-(?:platform|OS) gate has not passed/iu,
   );
+});
+
+test("release documentation keeps the owner-scoped mirror contract", async () => {
+  const [readme, installation, release, decision, checklist] = await Promise.all([
+    "README.md", "docs/INSTALLATION.md", "docs/RELEASE.md",
+    "docs/decisions/0012-owner-scoped-github-packages-mirror.md", "to-do-sujan.md",
+  ].map(async (path) => readFile(resolve(path), "utf8")));
+  const publicDocs = [readme, installation].join("\n");
+  const operatorDocs = [release, decision, checklist].join("\n");
+
+  assert.match(publicDocs, /@darkweb19\/draftforge/u);
+  assert.match(publicDocs, /same `draftforge` binary/u);
+  assert.match(publicDocs, /Users should install the canonical npmjs package/u);
+  assert.match(operatorDocs, /built-in\s+`GITHUB_TOKEN`/u);
+  assert.match(operatorDocs, /different[\s\S]{0,40}SHA-256 digests/u);
+  assert.match(operatorDocs, /`name`/u);
+  assert.match(operatorDocs, /`publishConfig\.registry`/u);
+  assert.match(operatorDocs, /Ubuntu, macOS, and Windows/u);
+  assert.match(operatorDocs, /GitHub Release[\s\S]{0,100}canonical npmjs tarball/u);
+  assert.match(operatorDocs, /No new GitHub organization/u);
+  assert.match(operatorDocs, /Do not (?:create|configure) a PAT/u);
 });
 
 test("quickstart prepares a clean Git root and states ignore ownership", async () => {

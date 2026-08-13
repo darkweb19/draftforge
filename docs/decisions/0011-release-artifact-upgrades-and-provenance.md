@@ -2,6 +2,12 @@
 
 Status: accepted
 
+> GitHub Packages topology is partially superseded by
+> [ADR 0012](0012-owner-scoped-github-packages-mirror.md): the mirror is
+> `@darkweb19/draftforge`, is separately packed with a constrained manifest
+> delta and its own digest, and uses the repository `GITHUB_TOKEN` without a new
+> GitHub organization, PAT, or GitHub Packages bootstrap.
+
 ## Decision
 
 DraftForge releases one ESM npm CLI for Node.js 22 and newer. The npm tarball is

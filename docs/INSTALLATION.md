@@ -19,10 +19,12 @@ npm install --global @draftforge-dev/draftforge
 draftforge --version
 ```
 
-Release automation targets GitHub Packages as a repository-linked mirror of the
-same tested tarball, not as the default install source. Installing an available
-mirror requires explicit GitHub npm registry configuration; the command above
-intentionally uses npmjs.
+Release automation also publishes `@darkweb19/draftforge@0.1.0` as the public,
+repository-linked GitHub Packages mirror. It comes from the same source commit
+and exposes the same `draftforge` binary, but its package name and registry
+manifest field produce a different tarball and digest. Users should install the
+canonical npmjs package with the command above. The mirror is not the default
+install source and requires explicit GitHub npm registry configuration.
 
 ## Verify a local tarball
 

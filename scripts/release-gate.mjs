@@ -8,6 +8,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readlink,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -22,8 +23,13 @@ import {
 } from "./package-smoke.mjs";
 
 export const RELEASE_NAME = "@draftforge-dev/draftforge";
+export const GITHUB_MIRROR_NAME = "@darkweb19/draftforge";
 export const RELEASE_VERSION = "0.1.0";
 export const RELEASE_TAG = `v${RELEASE_VERSION}`;
+export const RELEASE_IDENTITIES = Object.freeze({
+  npmjs: Object.freeze({ name: RELEASE_NAME, registry: "https://registry.npmjs.org/" }),
+  github: Object.freeze({ name: GITHUB_MIRROR_NAME, registry: "https://npm.pkg.github.com/" }),
+});
 const SHA256 = /^[a-f0-9]{64}$/u;
 const GIT_COMMIT = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const SLSA_PROVENANCE_V1 = "https://slsa.dev/provenance/v1";
@@ -76,16 +82,17 @@ export function npmTarballName(name, version) {
 }
 
 export function validateReleaseIdentity(metadata, sourceMetadata, options = {}) {
+  const identity = releaseIdentity(options.identity);
   const tag = options.tag ?? `v${sourceMetadata.version}`;
-  const tarballName = options.tarballName ?? npmTarballName(sourceMetadata.name, sourceMetadata.version);
+  const tarballName = options.tarballName ?? npmTarballName(identity.name, sourceMetadata.version);
   assert.equal(sourceMetadata.name, RELEASE_NAME, `package.json name must be ${RELEASE_NAME}`);
   assert.equal(sourceMetadata.version, RELEASE_VERSION, `package.json version must be ${RELEASE_VERSION}`);
-  assert.equal(metadata.name, sourceMetadata.name, "Tarball package name must match package.json");
+  assert.equal(metadata.name, identity.name, "Tarball package name must match its release identity");
   assert.equal(metadata.version, sourceMetadata.version, "Tarball version must match package.json");
   assert.equal(tag, `v${sourceMetadata.version}`, "Release tag must match package.json version");
   assert.equal(
     tarballName,
-    npmTarballName(sourceMetadata.name, sourceMetadata.version),
+    npmTarballName(identity.name, sourceMetadata.version),
     "Tarball filename must match package name and version",
   );
   assert.equal(metadata.private, undefined, "Release package must not be private");
@@ -94,10 +101,15 @@ export function validateReleaseIdentity(metadata, sourceMetadata, options = {}) 
   assert.equal(metadata.publishConfig?.access, "public", "Tarball publish access must be public");
   assert.equal(
     metadata.publishConfig?.registry,
-    "https://registry.npmjs.org/",
-    "npmjs must remain the canonical registry",
+    identity.registry,
+    `Tarball registry must match the ${options.identity ?? "npmjs"} release identity`,
   );
   assert.deepEqual(metadata.repository, sourceMetadata.repository, "Tarball repository metadata must match package.json");
+}
+
+function releaseIdentity(identity = "npmjs") {
+  if (!(identity in RELEASE_IDENTITIES)) throw new Error(`Unknown release identity: ${identity}`);
+  return RELEASE_IDENTITIES[identity];
 }
 
 export function assertTarballShape(actualEntries, expectedEntries) {
@@ -161,6 +173,7 @@ export async function inspectCandidate(tarballInput, options = {}) {
   if (packedMetadataEntry === undefined) throw new Error("Tarball package.json is missing.");
   const metadata = JSON.parse(packedMetadataEntry.data.toString("utf8"));
   validateReleaseIdentity(metadata, sourceMetadata, {
+    identity: options.identity,
     tag: options.tag,
     tarballName: basename(tarball),
   });
@@ -205,20 +218,20 @@ export async function runInstalledGate(tarballInput, metadata, options = {}) {
       tarball,
     ], { cwd: smokeRoot, env: baseEnv });
 
-    const binary = installedBinary(smokeRoot);
-    const version = await run(binary, ["--version"], { cwd: smokeRoot, env: baseEnv });
+    const binary = await installedBinary(smokeRoot);
+    const version = await run(binary.invocation, ["--version"], { cwd: smokeRoot, env: baseEnv });
     assert.equal(version.stdout.trim(), metadata.version, "Installed binary is inert or reports the wrong version");
 
     const doctorShims = await createHarnessShims(smokeRoot, "pass");
     const project = join(smokeRoot, "project");
     const commandEnv = { ...baseEnv, PATH: `${doctorShims.directory}${delimiter}${baseEnv.PATH}` };
-    await run(binary, ["init", project, "--name", "Release gate"], { cwd: smokeRoot, env: commandEnv });
-    await run(binary, ["doctor"], { cwd: project, env: commandEnv });
-    await run(binary, ["status"], { cwd: project, env: commandEnv });
-    await run(binary, ["handoff"], { cwd: project, env: commandEnv });
-    await runUpgradeGate(binary, smokeRoot, project, root, commandEnv);
-    await runUnsafeUpgradeGates(binary, smokeRoot, commandEnv);
-    await runResumeReviewGate(binary, smokeRoot, root, baseEnv);
+    await run(binary.invocation, ["init", project, "--name", "Release gate"], { cwd: smokeRoot, env: commandEnv });
+    await run(binary.invocation, ["doctor"], { cwd: project, env: commandEnv });
+    await run(binary.invocation, ["status"], { cwd: project, env: commandEnv });
+    await run(binary.invocation, ["handoff"], { cwd: project, env: commandEnv });
+    await runUpgradeGate(binary.invocation, smokeRoot, project, root, commandEnv);
+    await runUnsafeUpgradeGates(binary.invocation, smokeRoot, commandEnv);
+    await runResumeReviewGate(binary.invocation, smokeRoot, root, baseEnv);
   } finally {
     await rm(smokeRoot, { recursive: true, force: true });
   }
@@ -363,10 +376,20 @@ export async function runReleaseGate(options) {
   return candidate;
 }
 
-function installedBinary(root) {
-  return process.platform === "win32"
+async function installedBinary(root) {
+  const path = process.platform === "win32"
     ? join(root, "node_modules", ".bin", "draftforge.cmd")
     : join(root, "node_modules", ".bin", "draftforge");
+  const status = await lstat(path);
+  if (process.platform === "win32") {
+    assert.ok(status.isFile() && !status.isSymbolicLink(), "npm must generate the Windows draftforge.cmd shim");
+    return { path, invocation: path };
+  }
+  assert.ok(status.isSymbolicLink(), "npm must generate the POSIX draftforge binary symlink");
+  const target = resolve(join(path, ".."), await readlink(path));
+  const targetStatus = await lstat(target);
+  assert.ok(targetStatus.isFile() && !targetStatus.isSymbolicLink(), "npm-generated draftforge symlink target must be an installed regular file");
+  return { path, invocation: { command: process.execPath, prefix: [path] } };
 }
 
 function npmInvocation() {
@@ -475,10 +498,11 @@ function parseArguments(args) {
   for (let index = 0; index < rest.length; index += 1) {
     const option = rest[index];
     const value = rest[index + 1];
-    if (!["--checksum", "--sha256", "--tag"].includes(option) || value === undefined || value.startsWith("--")) {
+    if (!["--checksum", "--identity", "--sha256", "--tag"].includes(option) || value === undefined || value.startsWith("--")) {
       throw new Error(usage());
     }
     if (option === "--checksum") parsed.checksumPath = value;
+    if (option === "--identity") parsed.identity = value;
     if (option === "--sha256") parsed.expectedSha256 = value;
     if (option === "--tag") parsed.tag = value;
     index += 1;
@@ -487,11 +511,12 @@ function parseArguments(args) {
     throw new Error("Use either --checksum or --sha256, not both.");
   }
   parsed.tag ??= process.env.GITHUB_REF_NAME ?? RELEASE_TAG;
+  releaseIdentity(parsed.identity);
   return parsed;
 }
 
 function usage() {
-  return "Usage: node scripts/release-gate.mjs <tarball-path> [--checksum <sha256-file> | --sha256 <digest>] [--tag <vX.Y.Z>]";
+  return "Usage: node scripts/release-gate.mjs <tarball-path> [--identity <npmjs|github>] [--checksum <sha256-file> | --sha256 <digest>] [--tag <vX.Y.Z>]";
 }
 
 const entryUrl = process.argv[1] === undefined ? undefined : pathToFileURL(resolve(process.argv[1])).href;
