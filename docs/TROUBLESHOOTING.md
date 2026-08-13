@@ -54,9 +54,11 @@ or secrets on a command line as a workaround.
 
 Run `node --version`, `npm list --global --depth=0`, and
 `draftforge --version`. Node must be 22+. The public unscoped npm package is
-unrelated; use this repository's verified tarball. Locate stale executables with
-`where.exe draftforge` on Windows or `which draftforge` on macOS/Linux, then fix
-the installation or PATH. Do not delete an unresolved directory.
+unrelated. Until `@draftforge-dev/draftforge@0.1.0` is published on npmjs, use
+this repository's verified `draftforge-dev-draftforge-0.1.0.tgz`. GitHub
+Packages is a mirror, not the default source. Locate stale executables with
+`where.exe draftforge` on Windows or `which draftforge` on macOS/Linux, then
+fix the installation or PATH. Do not delete an unresolved directory.
 
 ## Upgrades and safe evidence
 

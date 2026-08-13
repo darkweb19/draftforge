@@ -1,8 +1,16 @@
 {
-  "name": "draftforge",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@draftforge-dev/draftforge",
+  "version": "0.1.0",
   "description": "Model-orchestrated CLI for turning rough ideas into agent-ready project scaffolds.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/darkweb19/draftforge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/darkweb19/draftforge/issues"
+  },
+  "homepage": "https://github.com/darkweb19/draftforge#readme",
   "type": "module",
   "bin": {
     "draftforge": "./dist/bin.js"
@@ -15,6 +23,11 @@
   ],
   "engines": {
     "node": ">=22"
+  },
+  "packageManager": "npm@11.16.0",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",

@@ -12,6 +12,9 @@ const DOCS = [
   "docs/EXAMPLE.md",
 ] as const;
 
+const RELEASE_NAME = "@draftforge-dev/draftforge";
+const RELEASE_VERSION = "0.1.0";
+
 function capture(): { io: CliIo; output: string[]; errors: string[] } {
   const output: string[] = [];
   const errors: string[] = [];
@@ -39,7 +42,9 @@ test("packaged README uses stable repository links for non-packaged files", asyn
   assert.ok(destinations.length > 0);
   for (const destination of destinations) {
     assert.ok(
-      destination.startsWith("#") || destination.startsWith("https://github.com/darkweb19/draftforge/"),
+      destination.startsWith("#")
+        || destination.startsWith("https://github.com/darkweb19/draftforge/")
+        || destination === "https://www.npmjs.com/package/@draftforge-dev/draftforge",
       `README link is not tarball-safe: ${destination}`,
     );
   }
@@ -48,6 +53,60 @@ test("packaged README uses stable repository links for non-packaged files", asyn
     "https://github.com/darkweb19/draftforge/blob/main/SECURITY.md",
     "https://github.com/darkweb19/draftforge/blob/main/docs/EXAMPLE.md",
   ]) assert.ok(destinations.includes(destination), `README is missing ${destination}`);
+});
+
+test("release identity and installation commands stay canonical", async () => {
+  const packageJson: unknown = JSON.parse(await readFile(resolve("package.json"), "utf8"));
+  const packageLock: unknown = JSON.parse(await readFile(resolve("package-lock.json"), "utf8"));
+  const metadata = packageJson as {
+    name: string; version: string; private?: boolean; license: string;
+    repository: { type: string; url: string }; bugs: { url: string }; homepage: string;
+    bin: { draftforge: string }; files: string[]; engines: { node: string };
+    packageManager: string; publishConfig: { access: string; registry: string };
+  };
+  const lock = packageLock as { name: string; version: string; packages: { "": { name: string; version: string } } };
+
+  assert.equal(metadata.name, RELEASE_NAME);
+  assert.equal(metadata.version, RELEASE_VERSION);
+  assert.equal(metadata.private, undefined);
+  assert.equal(metadata.license, "MIT");
+  assert.deepEqual(metadata.repository, {
+    type: "git",
+    url: "git+https://github.com/darkweb19/draftforge.git",
+  });
+  assert.equal(metadata.bugs.url, "https://github.com/darkweb19/draftforge/issues");
+  assert.equal(metadata.homepage, "https://github.com/darkweb19/draftforge#readme");
+  assert.deepEqual(metadata.bin, { draftforge: "./dist/bin.js" });
+  assert.deepEqual(metadata.files, ["dist", "templates", "README.md", "LICENSE"]);
+  assert.deepEqual(metadata.engines, { node: ">=22" });
+  assert.equal(metadata.packageManager, "npm@11.16.0");
+  assert.deepEqual(metadata.publishConfig, {
+    access: "public",
+    registry: "https://registry.npmjs.org/",
+  });
+  assert.equal(lock.name, RELEASE_NAME);
+  assert.equal(lock.version, RELEASE_VERSION);
+  assert.equal(lock.packages[""].name, RELEASE_NAME);
+  assert.equal(lock.packages[""].version, RELEASE_VERSION);
+
+  const releaseDocs = await Promise.all([
+    "README.md", "CHANGELOG.md", "SECURITY.md", "docs/INSTALLATION.md",
+    "docs/TROUBLESHOOTING.md", "to-do-sujan.md",
+  ].map(async (path) => readFile(resolve(path), "utf8")));
+  const combined = releaseDocs.join("\n");
+  assert.doesNotMatch(combined, /@YOUR_SCOPE|0\.0\.0/u);
+  assert.match(combined, /npm install --global @draftforge-dev\/draftforge/u);
+  assert.match(combined, /npm uninstall --global @draftforge-dev\/draftforge/u);
+  assert.match(combined, /npmjs is\s+the canonical registry/u);
+  assert.match(combined, /GitHub Packages (?:will be |is )?a? ?(?:repository-linked )?mirror/u);
+  assert.match(combined, /^## 0\.1\.0$/mu);
+  const lifecycleNeutralDocs = await Promise.all([
+    "README.md", "CHANGELOG.md", "SECURITY.md", "docs/INSTALLATION.md",
+  ].map(async (path) => readFile(resolve(path), "utf8")));
+  assert.doesNotMatch(
+    lifecycleNeutralDocs.join("\n"),
+    /not (?:a )?published release|has not been published|not available from the registry|evidence (?:is )?still (?:in progress|pending)|final three-(?:platform|OS) gate has not passed/iu,
+  );
 });
 
 test("quickstart prepares a clean Git root and states ignore ownership", async () => {

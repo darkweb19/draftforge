@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Check and package (Ubuntu, Node 22)
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.release-check.outputs.artifact_name }}
+      tarball: ${{ steps.release-check.outputs.tarball }}
+      sha256: ${{ steps.release-check.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Pack the checked build without rebuilding
+        shell: bash
+        run: |
+          mkdir release-artifact
+          npm pack --ignore-scripts --pack-destination release-artifact
+      - name: Audit and checksum the release artifact
+        id: release-check
+        run: node scripts/release-check.mjs release-artifact/draftforge-dev-draftforge-0.1.0.tgz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.release-check.outputs.artifact_name }}
+          path: |
+            ${{ steps.release-check.outputs.tarball }}
+            ${{ steps.release-check.outputs.tarball }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  artifact-smoke:
+    name: Installed artifact smoke (${{ matrix.os }}, Node 22)
+    needs: package
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.package.outputs.artifact_name }}
+          path: release-artifact
+      - name: Verify the downloaded artifact identity and checksum
+        run: node scripts/release-check.mjs "${{ needs.package.outputs.tarball }}" --sha256 "${{ needs.package.outputs.sha256 }}"
+      - name: Run the full release gate against the exact installed artifact
+        run: node scripts/release-gate.mjs "${{ needs.package.outputs.tarball }}" --checksum "${{ needs.package.outputs.tarball }}.sha256"

@@ -1,6 +1,9 @@
-# Sujan's npm scope setup
+# Sujan's 0.1.0 publication setup
 
-DraftForge cannot publish as unscoped `draftforge`; that name belongs to another package. Complete this checklist and send the selected scope back to Codex.
+The approved public package is `@draftforge-dev/draftforge@0.1.0`. npmjs is the
+canonical registry; GitHub Packages will be a repository-linked mirror of the
+same tested tarball. The unscoped `draftforge` package belongs to another
+project.
 
 ## Recommended: use an npm organization scope
 
@@ -8,13 +11,10 @@ An organization keeps the package identity separate from a personal account and 
 
 - [ ] Sign in at [npmjs.com](https://www.npmjs.com/). Create an account first if needed.
 - [ ] Enable two-factor authentication on the npm account and save the recovery codes somewhere secure.
-- [ ] Open the profile menu and select **Add an Organization**.
-- [ ] Choose an available organization name. The name becomes the scope automatically; an organization named `draftforge-dev` creates the scope `@draftforge-dev`.
+- [ ] Confirm the `draftforge-dev` organization exists. If it does not, open the profile menu and select **Add an Organization** to create it.
+- [ ] Confirm your account can administer the `@draftforge-dev` scope.
 - [ ] Select **Unlimited public packages** unless private npm packages are actually needed.
-- [ ] Finish organization creation. Inviting collaborators is optional.
-- [ ] Record the exact package name: `@YOUR_SCOPE/draftforge`.
-
-If an npm organization is unnecessary, the npm username already provides a personal scope. For example, npm user `sujan-example` owns `@sujan-example`. Do not use that example literally.
+- [ ] Confirm the exact package name: `@draftforge-dev/draftforge`.
 
 ## Verify ownership locally
 
@@ -26,25 +26,30 @@ npm whoami
 npm ping
 ```
 
-Then verify the chosen organization appears in your npm account at **Profile → Organizations**. A personal scope must exactly match the username returned by `npm whoami`.
+Then verify `draftforge-dev` appears in your npm account at **Profile → Organizations**.
 
-Check whether the scoped package identity is unused:
+Check the approved package identity:
 
 ```powershell
-npm view @YOUR_SCOPE/draftforge name version
+npm view @draftforge-dev/draftforge name version
 ```
 
 For a new package, npm should return a not-found error. That is expected; the scope exists, but the package has not been published. Do not publish anything yet.
 
 ## Send this back to Codex
 
-- [ ] Exact scope: `@________________`
-- [ ] Exact intended package name: `@________________/draftforge`
-- [ ] Scope type: organization / personal
+- [ ] Exact scope confirmed: `@draftforge-dev`
+- [ ] Exact intended package name confirmed: `@draftforge-dev/draftforge`
+- [ ] Scope type confirmed: organization
 - [ ] npm 2FA enabled: yes / no
 - [ ] GitHub repository visibility: public / private
 
 The GitHub repository is currently `darkweb19/draftforge`. It must be public for npm provenance to be generated for a public package.
+
+Also confirm whether `GITHUB_TOKEN` can publish and link the GitHub Packages
+mirror for the selected namespace. npm scope ownership does not prove GitHub
+Packages authority. If cross-owner publication needs another credential, stop
+and approve a separately scoped credential rather than broadening permissions.
 
 ## Trusted publishing — do this after P06-T04 adds the workflow
 

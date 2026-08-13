@@ -2,9 +2,12 @@
 
 ## Supported releases
 
-DraftForge is still an unpublished `0.0.0` release candidate. There is no
-supported public release yet. Security fixes are made on the current repository
-branch; this policy will name supported npm versions before the first release.
+`@draftforge-dev/draftforge@0.1.0` is the initial release identity. Check the
+[npm package](https://www.npmjs.com/package/@draftforge-dev/draftforge) and
+[GitHub releases](https://github.com/darkweb19/draftforge/releases) to confirm
+which versions are currently published. Security fixes target the current
+published release line and the current repository branch; older versions may
+require upgrading before a fix is available.
 
 ## Report a vulnerability privately
 

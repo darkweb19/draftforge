@@ -1,0 +1,14 @@
+{
+  "name": "@draftforge-dev/draftforge",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "draftforge": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}
