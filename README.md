@@ -38,12 +38,11 @@ that exact artifact in a clean temporary project and exercises the npm-generated
 binary without a provider or network call. Remove the globally installed package
 with `npm uninstall --global @draftforge-dev/draftforge`.
 
-Release automation also publishes owner-scoped mirror
-`@darkweb19/draftforge@0.1.0` to GitHub Packages from the same source commit.
-Both packages expose the same `draftforge` binary. Their tarballs have separate
-digests because the mirror has a different manifest name and publish registry.
-Users should install the canonical npmjs package above; the mirror is not the
-default install source.
+For a completed release, the owner-scoped `@darkweb19/draftforge` GitHub
+Packages mirror is built from the same source commit. Both packages expose the
+same `draftforge` binary. Their tarballs have separate digests because the
+mirror has a different manifest name and publish registry. Users should install the canonical npmjs package above;
+the mirror is not the default install source.
 
 See [Installation](https://github.com/darkweb19/draftforge/blob/main/docs/INSTALLATION.md)
 for registry status, initialization, upgrades, and uninstall details.
@@ -278,13 +277,24 @@ provider calls.
 
 ## Release records
 
-`package.json` is the version authority. Canonical npmjs package
-`@draftforge-dev/draftforge` and GitHub Packages mirror
-`@darkweb19/draftforge` are built from one commit with only the mirror manifest
-name and registry changed. Each tarball has its own digest and both are
-installed-tested across Ubuntu, macOS, and Windows. GitHub Release carries the
-canonical npmjs tarball and checksum; a local smoke result alone is not release
-evidence.
+Pushes to any branch, including `main`, and pull requests run CI only; they
+never publish a package. A normal release begins only when a maintainer
+intentionally pushes a `vX.Y.Z` tag whose version exactly matches
+`package.json`.
+
+The tag workflow builds the canonical npmjs package
+`@draftforge-dev/draftforge` and the GitHub Packages mirror
+`@darkweb19/draftforge` from the tagged commit. Publication is gated by the
+Node.js 22 checks and installed-artifact tests on Ubuntu, macOS, and Windows.
+The canonical npmjs publication uses trusted publishing through GitHub Actions
+OIDC, includes provenance, and does not use an `NPM_TOKEN`.
+
+The GitHub Packages mirror, canonical npmjs package, and GitHub Release are
+separate downstream surfaces. GitHub Release carries the canonical npmjs
+tarball and checksum, but success on one surface does not prove that the others
+are complete; check each destination for current availability. The manual
+workflow is an exceptional, idempotent recovery path for `v0.1.0` only. It is
+not a general release command and does not publish from `main`.
 
 ## Security boundaries
 

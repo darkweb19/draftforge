@@ -49,6 +49,23 @@
 - Render handoff: `npm run session:render`
 - Validate handoff: `npm run session:check`
 
+## Release operations
+
+- Pushes to branches, including `main`, and pull requests run CI only. They
+  never publish packages.
+- The normal release trigger is an intentional pushed `vX.Y.Z` tag. The tag
+  version must exactly match the version in `package.json`.
+- Publication remains gated until the Node.js 22 checks and installed-artifact
+  tests pass on Ubuntu, macOS, and Windows.
+- npmjs is canonical at `@draftforge-dev/draftforge`. It publishes through the
+  configured GitHub Actions trusted publisher using OIDC and provenance; do not
+  add or use an `NPM_TOKEN`.
+- `@darkweb19/draftforge` on GitHub Packages and the GitHub Release are separate
+  downstream surfaces. Verify each surface independently and do not report the
+  whole release complete because only one succeeded.
+- The manual `v0.1.0` recovery job is exceptional and idempotent. It is not a
+  general release path and must not be described as deployment from `main`.
+
 ## Done means
 
 - Acceptance criteria in the active task pass.
