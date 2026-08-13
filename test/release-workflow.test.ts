@@ -229,6 +229,8 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.match(githubPackages, /@darkweb19\/draftforge/u);
   assert.match(githubPackages, /darkweb19-draftforge-0\.1\.0\.tgz/u);
   assert.match(githubPackages, /npm view[\s\S]*view_status[\s\S]*E404[\s\S]*refusing to publish[\s\S]*npm publish/u);
+  assert.match(githubPackages, /npm publish "\.\/\$\{\{ needs\.package\.outputs\.mirror_tarball \}\}"/u);
+  assert.doesNotMatch(githubPackages, /npm publish "\$\{\{ needs\.package\.outputs\.mirror_tarball \}\}"/u);
   assert.match(githubPackages, /curl[\s\S]*release-check\.mjs[\s\S]*--sha256/u);
   assert.match(githubPackages, /\/users\/darkweb19\/packages\/npm\/draftforge/u);
   assert.match(githubPackages, /first GitHub Packages publication is private by default/u);
@@ -242,6 +244,8 @@ test("release preflights authority, resumes safely, and verifies every public ar
   assert.doesNotMatch(npmjs, /packages: write|contents: write|NPM_TOKEN|NODE_AUTH_TOKEN/u);
   assert.match(npmjs, /npm view[\s\S]*view_status[\s\S]*E404[\s\S]*refusing to publish[\s\S]*npm publish/u);
   assert.match(npmjs, /npm publish[\s\S]*--provenance[\s\S]*--access public/u);
+  assert.match(npmjs, /npm publish "\.\/\$\{\{ needs\.package\.outputs\.canonical_tarball \}\}"/u);
+  assert.doesNotMatch(npmjs, /npm publish "\$\{\{ needs\.package\.outputs\.canonical_tarball \}\}"/u);
   assert.match(npmjs, /curl[\s\S]*release-check\.mjs[\s\S]*--sha256/u);
   assert.match(npmjs, /npm view[\s\S]*--json[\s\S]*--npm-metadata/u);
 

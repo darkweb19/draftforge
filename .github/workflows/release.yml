@@ -177,7 +177,7 @@ jobs:
               echo "GitHub Packages lookup failed for a reason other than an absent mirror version; refusing to publish." >&2
               exit 1
             }
-            npm publish "${{ needs.package.outputs.mirror_tarball }}" --access public --registry "$registry"
+            npm publish "./${{ needs.package.outputs.mirror_tarball }}" --access public --registry "$registry"
             tarball_url="$(npm view "$package@$version" dist.tarball --registry "$registry")"
           fi
           mkdir registry-github
@@ -239,7 +239,7 @@ jobs:
               echo "npmjs lookup failed for a reason other than an absent stable version; refusing to publish." >&2
               exit 1
             }
-            npm publish "${{ needs.package.outputs.canonical_tarball }}" --provenance --access public --registry "$registry"
+            npm publish "./${{ needs.package.outputs.canonical_tarball }}" --provenance --access public --registry "$registry"
             tarball_url="$(npm view "$package@$version" dist.tarball --registry "$registry")"
           fi
           mkdir registry-npmjs
