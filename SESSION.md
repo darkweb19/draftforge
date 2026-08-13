@@ -4,7 +4,7 @@
 
 ## What was done
 
-- Phase 6 (Release) remains in progress. P06-T03 is done and the current full repository check passes (498 passed, 10 intentional skips, zero failures). Draft PR #6 contains the reviewed 0.1.0 release pipeline. P06-T04 is active: npmjs remains canonical @draftforge-dev/draftforge@0.1.0, while ADR 0012 replaces the unavailable cross-owner GitHub namespace with owner-scoped mirror @darkweb19/draftforge@0.1.0. Both tarballs come from one source commit, differ only in package name and publish registry, carry separate digests, and are installed-tested on Node 22 across Ubuntu, macOS, and Windows. The first pushed CI run exposed an installed-fixture shim failure; the local revision pins npm 11.16.0 and invokes the validated installed target portably, but external acceptance still requires a green rerun. P06-T05 remains backlog. Stable publication still requires the npmjs bootstrap and trusted-publisher setup; the first GitHub Packages publish may require a manual Public/link action followed by an idempotent workflow rerun.
+- Phase 6 (Release) remains in progress. P06-T03 is done and the full repository check passes (498 passed, 10 intentional skips, zero failures). PR #6 merged the independently reviewed 0.1.0 release pipeline into main at 677399f. Both canonical @draftforge-dev/draftforge and owner-scoped mirror @darkweb19/draftforge passed installed-package gates on Node 22 across Ubuntu, macOS, and Windows in two CI runs. P06-T04 remains active because no stable package, tag, or GitHub Release exists yet. The exact npmjs bootstrap candidate 0.1.0-bootstrap.0 passed its local installed CLI smoke test with SHA-256 8fea5c2e263f44060158c1ff8408383e3ead454b7256ca95c44a3c070a12f3d0, but npm correctly stopped before publication for the user's interactive 2FA proof-of-presence. After that bootstrap exists, configure trusted publishing and run the stable tag workflow; the first GitHub Packages publish may require a manual Public/link action followed by an idempotent rerun.
 - Current position: phase-06 — Release; stage implementation; status in_progress.
 - Current task: P06-T04. Next task: None.
 - Completed: P00-T01, P01-T01, P01-T02, P02-T01, P02-T02, P02-T03, P03-T01, P03-T02, P03-T03, P03-T04, P04-T01, P04-T02, P04-T03, P04-T04, P05-T01, P05-T02, P05-T03, P05-T04, P05-T05, P06-T01, P06-T02, P06-T03.
@@ -71,16 +71,16 @@ None
 
 ## Next steps
 
-1. Commit and push the reviewed owner-scoped revision to draft PR #6, then require a green Ubuntu/macOS/Windows Node 22 CI matrix for both tarballs before moving P06-T04 to done.
-2. Build and test the exact npmjs 0.1.0-bootstrap.0 tarball, publish it under a non-latest bootstrap tag with the user's npm 2FA approval, and configure npm trusted publishing for darkweb19/draftforge, release.yml, and environment npmjs.
+1. Complete npm 2FA in the open bootstrap PowerShell window and verify public @draftforge-dev/draftforge@0.1.0-bootstrap.0 under the non-latest bootstrap tag.
+2. Configure npm trusted publishing for darkweb19/draftforge, release.yml, and environment npmjs after the package exists.
 3. Configure the npm trusted-publisher repository variables and protected npmjs environment; GitHub Packages uses only the built-in GITHUB_TOKEN and needs no PAT, secret, bootstrap, or new organization.
-4. After the green matrix and npmjs bootstrap exist, merge the PR, tag v0.1.0, handle the expected first GitHub Packages visibility/link checkpoint if it occurs, rerun idempotently, and verify npmjs, GitHub Packages, and GitHub Release.
+4. Create and push tag v0.1.0 at accepted main, handle the expected first GitHub Packages visibility/link checkpoint if it occurs, rerun idempotently, and verify npmjs, GitHub Packages, and GitHub Release.
 5. Still open from Phase 4: drive a successful multi-task parallel dispatch through the built CLI with a real codex-cli or claude-cli when an authenticated local harness is available.
 
 ## Gotchas
 
-- P06-T04 cannot pass its external acceptance gate until the owner-scoped revision is committed, pushed to draft PR #6, and the real Node 22 Ubuntu, macOS, and Windows GitHub Actions jobs accept both package identities.
-- Stable npmjs publication is blocked until 0.1.0-bootstrap.0 exists under @draftforge-dev/draftforge and npm trusted publishing is configured for darkweb19/draftforge, release.yml, and environment npmjs. The first @darkweb19/draftforge GitHub Packages publish may remain private or unlinked; make it Public and link it to darkweb19/draftforge, then rerun the same tag workflow.
+- The user must complete npm's interactive 2FA challenge in the open bootstrap PowerShell window; npm did not publish 0.1.0-bootstrap.0 without that proof-of-presence.
+- Stable npmjs publication is blocked until npm trusted publishing is configured for darkweb19/draftforge, release.yml, and environment npmjs after the bootstrap exists. The first @darkweb19/draftforge GitHub Packages publish may remain private or unlinked; make it Public and link it to darkweb19/draftforge, then rerun the same tag workflow.
 - `withProjectLock` now waits rather than refusing: one deadline is computed at entry (DEFAULT_LOCK_WAIT_TIMEOUT_MS 30s, DEFAULT_LOCK_POLL_INTERVAL_MS 25ms, both overridable per call) and every transient condition retries via the internal RetryableLockContention signal. Stale locks are still broken immediately. If you add a new refusal path in lock.ts, make it retryable unless it is genuinely unrecoverable - a hard throw there silently reintroduces the contention refusal.
 - Two concurrent `draftforge run` processes now wait for each other instead of one failing. That is a deliberate behavior change from Phase 4 and P05-T05 must document it in the CLI docs.
 - The worker seam accepts exactly two entry shapes: `claimed` with `baseCommit: null`, or `running` with a non-null base commit that must equal the recovered workspace's. Any other lifecycle, or a resumed base-commit mismatch, is a hard error before side effects - do not soften the mismatch into an overwrite.
@@ -132,4 +132,4 @@ None
 - The two privileged-symlink upgrade tests skip only when the host cannot create links; capable GitHub runners still exercise them. The ignored-parent race test uses a Windows junction so its security assertion remains active locally.
 - The provenance URL in test/fixtures/release/gate/failures.json is intentionally synthetic fixture data, not evidence of a live npm publication.
 
-Last updated: 2026-08-13T11:10:00.000-04:00 by codex
+Last updated: 2026-08-13T11:16:00.000-04:00 by codex
